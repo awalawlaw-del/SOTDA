@@ -287,9 +287,9 @@ main{padding-bottom:40px}
 
     <!-- MENU STO MOVE -->
     <section id="v-sto" class="view" hidden>
-      <div class="panel"><h2 style="font-size:24px">MENU STO MOVE</h2><div class="small muted">Pilih opname menghitung semua stok atau hanya part yang bergerak (masuk atau keluar). Impor file mutasi di sini; tanggal, petugas, dan qty-nya juga dipakai untuk Telusuri Selisih.</div><div id="stoInfo" style="margin-top:10px"></div></div>
+      <div class="panel"><h2 style="font-size:24px">MENU STO MOVE</h2><div class="small muted">Pilih opname menghitung barang yang bergerak (upload barang masuk dan barang keluar), semua stok, atau sesuai lokasi yang dipilih. Tanggal, petugas, dan qty dari file mutasi juga dipakai untuk Telusuri Selisih.</div><div id="stoInfo" style="margin-top:10px"></div></div>
       <div id="dbScope" class="note" hidden></div>
-      <button id="scopeBtn" class="btn pri block" type="button" hidden>Atur STO Move &amp; impor mutasi</button>
+      <button id="scopeBtn" class="btn pri block" type="button" hidden>Atur STO Move</button>
       <button id="stoExport" class="btn block" type="button"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>Ekspor daftar STO Move ke Excel</button>
     </section>
 
@@ -427,10 +427,10 @@ function ChunkSet(name,size,pick){
 }
 const MS=ChunkSet('master',300,x=>({p:x.p,d:x.d||'',q:Number(x.q)||0,l:x.l||'',a:x.a||''}));
 
-const MV=ChunkSet('mv',250,x=>({p:x.p,l:x.l||'',f:x.f||'',t:x.t||'',u:x.u||'',q:Number(x.q)||0}));
+const MV=ChunkSet('mv',250,x=>({p:x.p,l:x.l||'',f:x.f||'',t:x.t||'',u:x.u||'',q:Number(x.q)||0,k:x.k||''}));
 let MVI=new Map();
 async function saveMv(add){
-  const have=new Map();const mk=x=>[keyOf(x.p),x.l,x.f,x.t,x.u,x.q].join('|');
+  const have=new Map();const mk=x=>[keyOf(x.p),x.l,x.f,x.t,x.u,x.q,x.k||''].join('|');
   MV.list.forEach(x=>have.set(mk(x),(have.get(mk(x))||0)+1));
   const out=MV.list.slice();
   add.forEach(x=>{const k=mk(x),n=have.get(k)||0;if(n>0)have.set(k,n-1);else out.push(x);});
@@ -471,11 +471,12 @@ async function ensureLocs(names){
 const userOpts=(sel,extra)=>(extra||[]).concat(Array.from(D.users.keys()).sort().map(u=>[u,uName(u)+' ('+u+')'])).map(o=>'<option value="'+esc(o[0])+'"'+(o[0]===sel?' selected':'')+'>'+esc(o[1])+'</option>').join('');
 const asOpts=sel=>userOpts(sel,[['__loc','Sesuai PIC lokasi (otomatis)'],['','Belum ditugaskan']]);
 /* petugas hanya melihat part yang ditugaskan ke dia; admin bisa memfilter */
-function scopeMode(){return (D.meta.get('state')||{}).scope==='moved';}
+function scopeKind(){const k=(D.meta.get('state')||{}).scope;return k==='moved'||k==='loc'?k:'full';}
+function scopeMode(){return scopeKind()!=='full';}
 function inScope(k){return !scopeMode()||D.scopeSet.has(k);}
 function scopeBanner(){
   const on=scopeMode();
-  const t=on?'<b>MENU STO MOVE: hanya part yang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.':'';
+  const sk=scopeKind(),nl=((D.meta.get('state')||{}).scopeLocs||[]).length;const t=!on?'':sk==='loc'?'<b>MENU STO MOVE: sesuai lokasi pilihan</b> ('+fmt(nl)+' lokasi, '+fmt(D.scopeSet.size)+' part). Part di lokasi lain tidak ikut dihitung dan tidak masuk laporan.':'<b>MENU STO MOVE: hanya barang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.';
   ['dbScope','repScope'].forEach(i=>{const e=$('#'+i);e.hidden=!on;e.innerHTML=t;});
 }
 function passWho(v,p){
@@ -793,11 +794,10 @@ $('#stoExport').addEventListener('click',()=>{
   const list=moved?MS.list.filter(x=>D.scopeSet.has(ik(x))):MS.list;
   if(!list.length){toast(moved?'Daftar STO Move masih kosong. Impor file mutasi dulu.':'Database masih kosong.');return;}
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,sheetOf(countSheetAoa(list,moved?'Daftar STO Move (hanya part yang bergerak)':'Daftar Full Stok'),COUNT_W),'Daftar STO Move');
+  XLSX.utils.book_append_sheet(wb,sheetOf(countSheetAoa(list,moved?(scopeKind()==='loc'?'Daftar STO sesuai lokasi':'Daftar STO barang bergerak'):'Daftar Full Stok'),COUNT_W),'Daftar STO Move');
   if(MV.list.length){
-    const rank=new Map();MS.list.forEach(x=>{if(D.scopeSet.has(ik(x)))rank.set(keyOf(x.p),1);});
     const mv=MV.list.slice().sort((a,b)=>String(b.t||'').localeCompare(String(a.t||''))||String(a.p).localeCompare(String(b.p),'id',{numeric:true}));
-    XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Tanggal','Petugas','Qty','Lokasi Asal','Lokasi Tujuan']].concat(mv.map(x=>[x.p,x.t||'',x.u||'',x.q||0,x.f||'',x.l||''])),[24,12,20,10,16,16]),'Mutasi');
+    XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Jenis','Tanggal','Petugas','Qty','Lokasi Asal','Lokasi Tujuan']].concat(mv.map(x=>[x.p,x.k==='in'?'Masuk':x.k==='out'?'Keluar':'',x.t||'',x.u||'',x.q||0,x.f||'',x.l||''])),[24,10,12,20,10,16,16]),'Mutasi');
   }
   saveXlsx(wb,(moved?'sto-move-':'full-stok-')+new Date().toISOString().slice(0,10)+'.xlsx');
 });
@@ -926,7 +926,7 @@ const hitC=Counter('hit',{
   col:()=>'counts-'+sid,map:()=>D.counts,scope:()=>visibleParts('hit'),foreign:foreignMsg,allowNew:true,
   pendWord:'belum dihitung',doneWord:'sudah dihitung',action:'Hitung',prevWord:'Sudah dihitung',
   hint:'',info:k=>stokHTML(k,false),rowInfo:k=>stokHTML(k,false),
-  emptyScope:()=>scopeMode()&&!D.scopeSet.size?'MENU STO MOVE: hanya part bergerak, tapi daftarnya masih kosong. Admin perlu mengimpor daftar di MENU STO MOVE.':!M.byKey.size?'Database masih kosong. Isi dulu lewat menu Database.':(isAdmin()?'Tidak ada part pada filter ini.':'Belum ada part yang ditugaskan ke kamu. Minta admin membagi tugas.'),
+  emptyScope:()=>scopeMode()&&!D.scopeSet.size?'MENU STO MOVE: daftar part yang dihitung masih kosong. Admin perlu mengaturnya di MENU STO MOVE.':!M.byKey.size?'Database masih kosong. Isi dulu lewat menu Database.':(isAdmin()?'Tidak ada part pada filter ini.':'Belum ada part yang ditugaskan ke kamu. Minta admin membagi tugas.'),
   allDone:'Semua part sudah dihitung. Part yang selisih ada di menu Recount.'
 });
 let recScopeCache=null;
@@ -971,7 +971,7 @@ function traceSheet(p,hist){
   const dt=t=>t?t.slice(8)+'/'+t.slice(5,7)+'/'+t.slice(0,4):'-',v=x=>x==null?'-':fmt(x);
   const locH=rows.length?'<table class="tr"><tr><th>Lokasi</th><th>Stok</th><th>Hitung</th><th>Penghitung</th><th>Selisih</th></tr>'+rows.map(r=>'<tr><td>'+esc(r.l||'(tanpa lokasi)')+'</td><td>'+fmt(r.sys)+'</td><td>'+v(r.fin)+'</td><td>'+esc(r.cb||'-')+'</td><td><span class="diff '+r.st+'">'+(r.st==='pending'?'Belum':r.st==='ok'?'0':sgn(r.diff))+'</span></td></tr>').join('')+'</table>':'<div class="muted small">Part tidak ada di database.</div>';
   const tot=mv.reduce((a,x)=>a+x.q,0);
-  const mvH=mv.length?'<div class="small muted">'+fmt(mv.length)+' pergerakan, total qty '+fmt(tot)+'</div><table class="tr"><tr><th>Tanggal</th><th>Petugas</th><th>Qty</th><th>Lokasi</th></tr>'+mv.slice(0,200).map(x=>'<tr><td>'+dt(x.t)+'</td><td>'+esc(x.u||'-')+'</td><td>'+fmt(x.q)+'</td><td>'+esc(x.f?x.f+' → ':'')+esc(x.l||'-')+'</td></tr>').join('')+'</table>':'<div class="note small">Belum ada data mutasi untuk part ini. Impor file mutasi lewat MENU STO MOVE, Impor Excel mutasi.</div>';
+  const mvH=mv.length?'<div class="small muted">'+fmt(mv.length)+' pergerakan, total qty '+fmt(tot)+'</div><table class="tr"><tr><th>Tanggal</th><th>Petugas</th><th>Qty</th><th>Lokasi</th></tr>'+mv.slice(0,200).map(x=>'<tr><td>'+dt(x.t)+(x.k==='in'?' · Masuk':x.k==='out'?' · Keluar':'')+'</td><td>'+esc(x.u||'-')+'</td><td>'+fmt(x.q)+'</td><td>'+esc(x.f?x.f+' → ':'')+esc(x.l||'-')+'</td></tr>').join('')+'</table>':'<div class="note small">Belum ada data mutasi untuk part ini. Impor file mutasi lewat MENU STO MOVE, Impor Excel mutasi.</div>';
   const s=openSheet('<h2>Telusuri Selisih</h2>'+(H?'<div class="small muted">Dari riwayat: '+esc(H.name||'Opname')+'</div>':'')+'<div class="mono">'+esc(p)+'</div><div class="small muted">'+esc(rows[0]?rows[0].d:'')+'</div><h3>Ada di lokasi</h3>'+locH+'<h3>Pergerakan</h3>'+mvH+'<button id="trX" class="btn block" type="button">Tutup</button>');
   $('#trX',s).onclick=closeSheet;
 }
@@ -1059,7 +1059,7 @@ async function saveSnapshot(name,startAt,rep,S){
 }
 function newOpnameSheet(){
   const rep=buildReport(),S=summarize(rep),st=D.meta.get('state')||{};
-  const def='STO '+new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})+(scopeMode()?' (part bergerak)':'');
+  const def='STO '+new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})+(scopeMode()?(scopeKind()==='loc'?' (per lokasi)':' (part bergerak)'):'');
   const s=openSheet('<h2>Mulai opname baru</h2>'
     +(S.done?'<div>Hasil opname sekarang ('+fmt(S.done)+' dari '+fmt(S.tot)+' part dihitung) disimpan dulu ke <b>Riwayat</b>, lalu semua part kembali berstatus belum dihitung.</div><label class="f">Nama opname<input id="oN" type="text" value="'+esc(def)+'"></label>'
       :'<div>Belum ada part yang dihitung, jadi tidak ada yang disimpan ke Riwayat. Semua status tetap kembali ke belum dihitung.</div>')
@@ -1295,83 +1295,130 @@ function asgSheet(){
 }
 
 /* ---------- cakupan STO: full stok atau hanya part yang bergerak ---------- */
-async function saveScope(mode,set){
+async function saveScope(mode,set,locs){
   const col='scope-'+sid,arr=Array.from(set).sort(),ids=new Set();
   for(let i=0;i*400<arr.length;i++){const id='c'+String(i).padStart(4,'0');ids.add(id);await store.set(col,id,{k:arr.slice(i*400,(i+1)*400)});}
   for(const id of Array.from(D.scopeCh.keys()))if(!ids.has(id))await store.del(col,id);
-  await store.set('meta','state',Object.assign({},D.meta.get('state')||{},{scope:mode}));
+  await store.set('meta','state',Object.assign({},D.meta.get('state')||{},{scope:mode},locs?{scopeLocs:locs}:{}));
 }
 const loose=s=>norm(s).replace(/\.0+$/,'').replace(/[^A-Z0-9]/g,'').replace(/^0+(?=.)/,'');
 function looseIdx(){const m=new Map();MS.list.forEach(x=>{const k=loose(x.p);if(!k)return;if(!m.has(k))m.set(k,[]);m.get(k).push(x);});return m;}
 function scopeSheet(){
-  const list=new Set(D.scopeSet);let rows=null,mvNew=[];
-  const s=openSheet('<h2>MENU STO MOVE</h2><div class="small muted">Atur apa yang dihitung pada opname yang sedang berjalan.</div>'
-   +'<div class="radio"><label><input type="radio" name="scM" value="full"'+(scopeMode()?'':' checked')+'>Full stok: semua part di database</label>'
-   +'<label><input type="radio" name="scM" value="moved"'+(scopeMode()?' checked':'')+'>Hanya yang bergerak: part atau lokasi yang kemarin masuk atau keluar</label></div>'
-   +'<div id="scMv"><div class="small muted">Daftar sekarang: <b id="scN">'+fmt(list.size)+'</b> part. Impor file mutasi dari Excel. Boleh beberapa file (misalnya barang masuk lalu barang keluar), hasilnya ditambahkan ke daftar.</div>'
-   +'<div class="tools"><label class="btn pri" for="scIn">Impor Excel mutasi</label><input id="scIn" type="file" accept=".xlsx,.xls,.csv" hidden><button id="scClr" class="btn dan" type="button">Kosongkan daftar</button></div>'
-   +'<div id="scMap" class="panel" hidden></div></div>'
+  const st=D.meta.get('state')||{};
+  const list=new Set(D.scopeSet);let mvNew=[];
+  const selLocs=new Set(Array.isArray(st.scopeLocs)?st.scopeLocs:[]);
+  const locStat=new Map();
+  MS.list.forEach(x=>{if(!norm(x.l))return;const k=keyOf(x.l),r=locStat.get(k)||{n:String(x.l).trim(),c:0};r.c++;locStat.set(k,r);});
+  const locArr=Array.from(locStat.entries()).sort((a,b)=>a[1].n.localeCompare(b[1].n,'id',{numeric:true}));
+  const kind0=scopeKind();
+  const card=(id,title,hint)=>'<div class="panel"><b>'+title+'</b><div class="small muted">'+hint+'</div>'
+    +'<div class="tools"><label class="btn pri" for="in_'+id+'">Upload file '+title.toLowerCase()+'</label><input id="in_'+id+'" type="file" accept=".xlsx,.xls,.csv" hidden></div>'
+    +'<div id="mp_'+id+'" hidden></div><div id="rs_'+id+'" class="small"></div></div>';
+  const s=openSheet('<h2>MENU STO MOVE</h2><div class="small muted">Pilih apa yang mau dihitung pada opname yang sedang berjalan.</div>'
+   +'<div class="radio">'
+   +'<label><input type="radio" name="scM" value="moved"'+(kind0==='moved'?' checked':'')+'>STO barang bergerak: part yang masuk atau keluar</label>'
+   +'<label><input type="radio" name="scM" value="full"'+(kind0==='full'?' checked':'')+'>STO semua stok: semua part di database</label>'
+   +'<label><input type="radio" name="scM" value="loc"'+(kind0==='loc'?' checked':'')+'>STO sesuai lokasi: pilih lokasi yang mau dihitung</label></div>'
+   +'<div id="scMv"><div class="small muted">Daftar sekarang: <b id="scN">'+fmt(list.size)+'</b> part. Upload barang masuk dan barang keluar di kotaknya masing-masing. Boleh lebih dari satu file, hasilnya ditambahkan ke daftar.</div>'
+   +card('in','Barang Masuk','Receiving atau barang yang masuk ke gudang. Setelah file dibaca, pilih tanggalnya (otomatis kemarin).')
+   +card('out','Barang Keluar','Barang yang keluar dari gudang. Setelah file dibaca, pilih tanggalnya (otomatis kemarin).')
+   +'<button id="scClr" class="btn dan block" type="button">Kosongkan daftar</button></div>'
+   +'<div id="scLc" hidden><input id="lcS" type="search" placeholder="Cari lokasi" aria-label="Cari lokasi">'
+   +'<div class="tools"><button id="lcAll" class="btn" type="button">Pilih semua yang tampil</button><button id="lcNone" class="btn" type="button">Kosongkan pilihan</button></div>'
+   +'<div id="lcN" class="small muted"></div><div id="lcL" class="radio" style="max-height:260px;overflow:auto"></div></div>'
    +'<div id="scErr" class="err" role="alert"></div><div class="two"><button id="scNo" class="btn" type="button">Batal</button><button id="scGo" class="btn pri" type="button">Simpan</button></div>');
   const mode=()=>(s.querySelector('input[name=scM]:checked')||{}).value;
-  const sync=()=>{$('#scMv',s).hidden=mode()!=='moved';};
-  s.addEventListener('change',sync);sync();
+  const sync=()=>{const md=mode();$('#scMv',s).hidden=md!=='moved';$('#scLc',s).hidden=md!=='loc';};
+  s.addEventListener('change',e=>{if(e.target.name==='scM')sync();});sync();
   $('#scNo',s).onclick=closeSheet;
-  $('#scClr',s).onclick=()=>{list.clear();$('#scN',s).textContent='0';};
-  $('#scIn',s).addEventListener('change',async e=>{
-    const f=e.target.files[0];e.target.value='';if(!f)return;
-    if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat. Muat ulang halaman.');return;}
-    try{
-      const r=sheetToRows(await f.arrayBuffer());
-      let h=r.findIndex(x=>x.filter(c=>String(c).trim()!=='').length>=1);if(h<0)h=0;
-      const head=(r[h]||[]).map((c,i)=>String(c).trim()||('Kolom '+(i+1)));rows=r.slice(h+1);
-      const find=(re,fb)=>{const i=head.findIndex(x=>re.test(x));return i>=0?i:fb;};
-      const ip=find(/part|material|kode|item|^pn$/i,0),il=find(/lokasi|location|^loc|^bin$|rak/i,-1),idt=find(/conf.*date|confirm|pick\s*date|tanggal|tgl|date/i,-1);const iu=find(/user|petugas|picker|operator|oleh|created|nama/i,-1),iq=find(/qty|quantity|jumlah/i,-1),ifr=find(/source|asal|from/i,-1);
-      const o=sel=>'<option value="-1">(tidak ada)</option>'+head.map((x,i)=>'<option value="'+i+'"'+(i===sel?' selected':'')+'>'+esc(x)+'</option>').join('');
-      const m=$('#scMap',s);m.hidden=false;
-      m.innerHTML='<div class="small muted">'+esc(f.name)+' · '+fmt(rows.length)+' baris</div>'
-        +'<label class="f">Kolom part number<select id="scP">'+o(ip)+'</select></label>'
-        +'<label class="f">Kolom lokasi<select id="scL">'+o(il)+'</select></label>'
-        +'<label class="f">Kolom tanggal (Conf Pick Date / Confirmation Date)<select id="scD">'+o(idt)+'</select></label><div id="scDt" class="radio"></div>'
-        +'<label class="f">Kolom petugas (siapa yang ambil)<select id="scU">'+o(iu)+'</select></label><label class="f">Kolom qty<select id="scQ">'+o(iq)+'</select></label><label class="f">Kolom lokasi asal<select id="scF">'+o(ifr)+'</select></label>'
-        +'<div class="radio"><label><input type="checkbox" id="scAll">Ikutkan semua part di lokasi tersebut (bukan hanya part yang tertulis)</label></div>'
-        +'<div class="small muted">Bila kolom part dikosongkan, semua part di lokasi pada file ikut dihitung.</div>'
-        +'<button id="scAdd" class="btn pri block" type="button">Tambahkan ke daftar</button>';
-      const rd=()=>{
-        const dc=+$('#scD',s).value,box=$('#scDt',s);
-        if(dc<0){box.innerHTML='<div class="small muted">Tanpa kolom tanggal: semua baris di file dipakai.</div>';return;}
-        const cnt=new Map();rows.forEach(x=>{const d=ymd(x[dc]);if(d)cnt.set(d,(cnt.get(d)||0)+1);});
-        const ds=Array.from(cnt.keys()).sort().reverse().slice(0,45);
-        if(!ds.length){box.innerHTML='<div class="small muted">Tanggal tidak terbaca di kolom ini.</div>';return;}
-        const y=new Date(Date.now()-864e5),yk=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
-        const pre=cnt.has(yk)?yk:ds[0];
-        box.innerHTML='<div class="small muted">Pilih tanggal yang masuk STO:</div>'+ds.map(d=>'<label><input type="checkbox" class="scDc" value="'+d+'"'+(d===pre?' checked':'')+'>'+d.slice(8)+'/'+d.slice(5,7)+'/'+d.slice(0,4)+' · '+fmt(cnt.get(d))+' baris</label>').join('');
-      };
-      $('#scD',s).addEventListener('change',rd);rd();
-      $('#scAdd',s).onclick=()=>{
-        const p=+$('#scP',s).value,l=+$('#scL',s).value,all=$('#scAll',s).checked;
-        if(p<0&&l<0){toast('Pilih kolom part number atau kolom lokasi.');return;}
-        const locs=new Set();let add=0,miss=0;const missEx=[];const LI=looseIdx();
-        const dc=+$('#scD',s).value;let use=rows;
-        if(dc>=0){const ok=new Set(Array.from(s.querySelectorAll('.scDc:checked')).map(c=>c.value));if(!ok.size){toast('Pilih minimal satu tanggal.');return;}use=rows.filter(x=>ok.has(ymd(x[dc])));}
-        const cu=+$('#scU',s).value,cq=+$('#scQ',s).value,cf=+$('#scF',s).value;
-        use.forEach(x=>{
-          if(p>=0&&norm(x[p]))mvNew.push({p:String(x[p]).trim(),l:l>=0?String(x[l]==null?'':x[l]).trim():'',f:cf>=0?String(x[cf]==null?'':x[cf]).trim():'',t:dc>=0?(ymd(x[dc])||''):'',u:cu>=0?String(x[cu]==null?'':x[cu]).trim():'',q:cq>=0?(parseQty(x[cq])||0):0});
-          const pn=p>=0?String(x[p]==null?'':x[p]).trim():'',lc=l>=0?String(x[l]==null?'':x[l]).trim():'';
-          if(norm(lc)&&(all||p<0))locs.add(keyOf(lc));
-          if(pn){const arr=M.byPart.get(keyOf(pn))||LI.get(loose(pn))||[];if(!arr.length){miss++;if(missEx.length<3&&missEx.indexOf(pn)<0)missEx.push(pn);}else{let sl=norm(lc)?arr.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc)):arr;if(!sl.length)sl=arr;sl.forEach(y=>{const k=ik(y);if(!list.has(k)){list.add(k);add++;}});}}
-        });
-        if(locs.size)MS.list.forEach(x=>{if(norm(x.l)&&locs.has(keyOf(x.l))){const k=ik(x);if(!list.has(k)){list.add(k);add++;}}});
-        $('#scN',s).textContent=fmt(list.size);m.hidden=true;
-        toast(fmt(add)+' part ditambahkan'+(miss?', '+fmt(miss)+' part tidak ada di database dilewati (contoh: '+missEx.join(', ')+')':''));
-      };
-    }catch(err){console.error(err);toast('File tidak bisa dibaca. Pakai .xlsx, .xls, atau .csv.');}
-  });
+  $('#scClr',s).onclick=()=>{list.clear();mvNew=[];$('#scN',s).textContent='0';['in','out'].forEach(i=>{$('#rs_'+i,s).textContent='';});};
+
+  /* STO sesuai lokasi */
+  const lcCount=()=>{let n=0;selLocs.forEach(k=>{const r=locStat.get(k);if(r)n+=r.c;});$('#lcN',s).textContent=fmt(selLocs.size)+' lokasi dipilih · '+fmt(n)+' part';};
+  const lcRender=()=>{
+    const q=norm($('#lcS',s).value);
+    const rows=locArr.filter(x=>!q||norm(x[1].n).includes(q));
+    $('#lcL',s).innerHTML=rows.length?rows.map(x=>'<label><input type="checkbox" class="lcC" value="'+esc(x[0])+'"'+(selLocs.has(x[0])?' checked':'')+'>'+esc(x[1].n)+' · '+fmt(x[1].c)+' part</label>').join(''):'<div class="small muted">'+(locArr.length?'Tidak ada lokasi yang cocok.':'Database belum punya data lokasi.')+'</div>';
+    lcCount();
+  };
+  $('#lcS',s).addEventListener('input',lcRender);
+  $('#lcL',s).addEventListener('change',e=>{const c=e.target;if(c.classList.contains('lcC')){if(c.checked)selLocs.add(c.value);else selLocs.delete(c.value);lcCount();}});
+  $('#lcAll',s).onclick=()=>{s.querySelectorAll('.lcC').forEach(c=>{selLocs.add(c.value);});lcRender();};
+  $('#lcNone',s).onclick=()=>{selLocs.clear();lcRender();};
+  lcRender();
+
+  /* STO barang bergerak: satu kotak upload untuk masuk, satu untuk keluar */
+  const setupCard=(id,kind)=>{
+    let rows=null;
+    $('#in_'+id,s).addEventListener('change',async e=>{
+      const f=e.target.files[0];e.target.value='';if(!f)return;
+      if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat. Muat ulang halaman.');return;}
+      try{
+        const r=sheetToRows(await f.arrayBuffer());
+        let h=r.findIndex(x=>x.filter(c=>String(c).trim()!=='').length>=1);if(h<0)h=0;
+        const head=(r[h]||[]).map((c,i)=>String(c).trim()||('Kolom '+(i+1)));rows=r.slice(h+1);
+        const find=(re,fb)=>{const i=head.findIndex(x=>re.test(x));return i>=0?i:fb;};
+        const ip=find(/part|material|kode|item|^pn$/i,0),il=find(/lokasi|location|^loc|^bin$|rak/i,-1),idt=find(/conf.*date|confirm|pick\s*date|tanggal|tgl|date/i,-1),iu=find(/user|petugas|picker|operator|oleh|created|nama/i,-1),iq=find(/qty|quantity|jumlah/i,-1),ifr=find(/source|asal|from/i,-1);
+        const o=sel=>'<option value="-1">(tidak ada)</option>'+head.map((x,i)=>'<option value="'+i+'"'+(i===sel?' selected':'')+'>'+esc(x)+'</option>').join('');
+        const m=$('#mp_'+id,s);m.hidden=false;
+        m.innerHTML='<div class="small muted">'+esc(f.name)+' · '+fmt(rows.length)+' baris</div>'
+          +'<label class="f">Kolom part number<select data-f="p">'+o(ip)+'</select></label>'
+          +'<label class="f">Kolom lokasi<select data-f="l">'+o(il)+'</select></label>'
+          +'<label class="f">Kolom tanggal<select data-f="d">'+o(idt)+'</select></label><div data-f="dates" class="radio"></div>'
+          +'<label class="f">Kolom petugas<select data-f="u">'+o(iu)+'</select></label>'
+          +'<label class="f">Kolom qty<select data-f="q">'+o(iq)+'</select></label>'
+          +'<label class="f">Kolom lokasi asal<select data-f="fr">'+o(ifr)+'</select></label>'
+          +'<div class="small muted">Bila kolom part dikosongkan, semua part di lokasi pada file ikut dihitung.</div>'
+          +'<button class="btn pri block" type="button" data-f="add">Tambahkan ke daftar</button>';
+        const g=n=>m.querySelector('[data-f='+n+']');
+        const rd=()=>{
+          const dc=+g('d').value,box=g('dates');
+          if(dc<0){box.innerHTML='<div class="small muted">Tanpa kolom tanggal: semua baris di file dipakai.</div>';return;}
+          const cnt=new Map();rows.forEach(x=>{const d=ymd(x[dc]);if(d)cnt.set(d,(cnt.get(d)||0)+1);});
+          const ds=Array.from(cnt.keys()).sort().reverse().slice(0,45);
+          if(!ds.length){box.innerHTML='<div class="small muted">Tanggal tidak terbaca di kolom ini.</div>';return;}
+          const y=new Date(Date.now()-864e5),yk=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+          const pre=cnt.has(yk)?yk:ds[0];
+          box.innerHTML='<div class="small muted">Pilih tanggal yang ikut STO'+(cnt.has(yk)?' (kemarin sudah dipilih)':' (kemarin tidak ada di file, dipilih tanggal terbaru)')+':</div>'+ds.map(d=>'<label><input type="checkbox" class="scDc" value="'+d+'"'+(d===pre?' checked':'')+'>'+d.slice(8)+'/'+d.slice(5,7)+'/'+d.slice(0,4)+' · '+fmt(cnt.get(d))+' baris</label>').join('');
+        };
+        g('d').addEventListener('change',rd);rd();
+        g('add').onclick=()=>{
+          const p=+g('p').value,l=+g('l').value,dc=+g('d').value,cu=+g('u').value,cq=+g('q').value,cf=+g('fr').value;
+          if(p<0&&l<0){toast('Pilih kolom part number atau kolom lokasi.');return;}
+          let use=rows;
+          if(dc>=0){const ok=new Set(Array.from(m.querySelectorAll('.scDc:checked')).map(c=>c.value));if(!ok.size){toast('Pilih minimal satu tanggal.');return;}use=rows.filter(x=>ok.has(ymd(x[dc])));}
+          const LI=looseIdx(),locs=new Set(),missEx=[];let add=0,miss=0;
+          use.forEach(x=>{
+            const pn=p>=0?String(x[p]==null?'':x[p]).trim():'',lc=l>=0?String(x[l]==null?'':x[l]).trim():'';
+            if(p>=0&&norm(pn))mvNew.push({p:pn,l:lc,f:cf>=0?String(x[cf]==null?'':x[cf]).trim():'',t:dc>=0?(ymd(x[dc])||''):'',u:cu>=0?String(x[cu]==null?'':x[cu]).trim():'',q:cq>=0?(parseQty(x[cq])||0):0,k:kind});
+            if(norm(lc)&&p<0)locs.add(keyOf(lc));
+            if(pn){
+              const arr=M.byPart.get(keyOf(pn))||LI.get(loose(pn))||[];
+              if(!arr.length){miss++;if(missEx.length<3&&missEx.indexOf(pn)<0)missEx.push(pn);}
+              else{let sl=norm(lc)?arr.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc)):arr;if(!sl.length)sl=arr;sl.forEach(y=>{const k=ik(y);if(!list.has(k)){list.add(k);add++;}});}
+            }
+          });
+          if(locs.size)MS.list.forEach(x=>{if(norm(x.l)&&locs.has(keyOf(x.l))){const k=ik(x);if(!list.has(k)){list.add(k);add++;}}});
+          $('#scN',s).textContent=fmt(list.size);m.hidden=true;
+          const msg=fmt(add)+' part ditambahkan dari '+f.name+(miss?', '+fmt(miss)+' part tidak ada di database dilewati (contoh: '+missEx.join(', ')+')':'');
+          $('#rs_'+id,s).textContent=msg;toast(msg);
+        };
+      }catch(err){console.error(err);toast('File tidak bisa dibaca. Pakai .xlsx, .xls, atau .csv.');}
+    });
+  };
+  setupCard('in','in');setupCard('out','out');
+
   $('#scGo',s).onclick=async()=>{
-    const md=mode();
-    if(md==='moved'&&!list.size){$('#scErr',s).textContent='Daftar masih kosong. Impor file mutasi dulu.';return;}
+    const md=mode();let set=list,locs=null;
+    if(md==='moved'&&!list.size){$('#scErr',s).textContent='Daftar masih kosong. Upload barang masuk atau barang keluar dulu.';return;}
+    if(md==='loc'){
+      if(!selLocs.size){$('#scErr',s).textContent='Pilih minimal satu lokasi.';return;}
+      set=new Set();MS.list.forEach(x=>{if(norm(x.l)&&selLocs.has(keyOf(x.l)))set.add(ik(x));});
+      locs=Array.from(selLocs);
+    }
     closeSheet();
     if(mvNew.length)await safe(()=>saveMv(mvNew));
-    if(await safe(()=>saveScope(md,list)))toast(md==='moved'?'Cakupan: hanya part bergerak ('+fmt(list.size)+' part)':'Cakupan: full stok');
+    if(await safe(()=>saveScope(md,set,locs)))toast(md==='moved'?'STO barang bergerak ('+fmt(set.size)+' part)':md==='loc'?'STO sesuai lokasi ('+fmt(locs.length)+' lokasi, '+fmt(set.size)+' part)':'STO semua stok');
   };
 }
 $('#scopeBtn').addEventListener('click',scopeSheet);
@@ -1473,7 +1520,7 @@ function closeMenu(){$('.tabs').classList.remove('open');$('#sbScrim').hidden=tr
 $('#menuBtn').addEventListener('click',()=>{const t=$('.tabs'),o=!t.classList.contains('open');t.classList.toggle('open',o);$('#sbScrim').hidden=!o;});
 $('#sbScrim').addEventListener('click',closeMenu);
 $$('.tab').forEach(b=>b.addEventListener('click',closeMenu));
-function renderSto(){const on=scopeMode();$('#stoInfo').innerHTML='<b>'+(on?'Mode: hanya part yang bergerak':'Mode: full stok')+'</b><div class="small muted">'+(on?fmt(D.scopeSet.size)+' part di daftar STO Move.':'Semua part di database ikut dihitung.')+'</div>';}
+function renderSto(){const k=scopeKind(),st=D.meta.get('state')||{},nl=(st.scopeLocs||[]).length;$('#stoInfo').innerHTML='<b>'+(k==='moved'?'Mode: STO barang bergerak':k==='loc'?'Mode: STO sesuai lokasi':'Mode: STO semua stok')+'</b><div class="small muted">'+(k==='full'?'Semua part di database ikut dihitung.':fmt(D.scopeSet.size)+' part di daftar STO'+(k==='loc'?' ('+fmt(nl)+' lokasi)':'')+'.')+'</div>';}
 function canonPic(t){t=String(t||'').trim();if(!t)return '';const u=t.toLowerCase();if(D.users.has(u))return u;const n=nameIdx().get(norm(t));if(n)return n;return /^[a-z0-9._-]{3,20}$/.test(u)?u:t;}
 let locLimit=80;
 function renderLoc(){
