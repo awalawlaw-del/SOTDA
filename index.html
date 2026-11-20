@@ -524,7 +524,7 @@ function buildReport(){
 
 /* ---------- util UI ---------- */
 let toastT=null;
-function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true;},3600);}
+function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true;},msg.length>80?8000:3600);}
 async function safe(fn,msg){
   try{await fn();return true;}catch(e){
     console.error(e);
@@ -1301,6 +1301,8 @@ async function saveScope(mode,set){
   for(const id of Array.from(D.scopeCh.keys()))if(!ids.has(id))await store.del(col,id);
   await store.set('meta','state',Object.assign({},D.meta.get('state')||{},{scope:mode}));
 }
+const loose=s=>norm(s).replace(/\.0+$/,'').replace(/[^A-Z0-9]/g,'').replace(/^0+(?=.)/,'');
+function looseIdx(){const m=new Map();MS.list.forEach(x=>{const k=loose(x.p);if(!k)return;if(!m.has(k))m.set(k,[]);m.get(k).push(x);});return m;}
 function scopeSheet(){
   const list=new Set(D.scopeSet);let rows=null,mvNew=[];
   const s=openSheet('<h2>MENU STO MOVE</h2><div class="small muted">Atur apa yang dihitung pada opname yang sedang berjalan.</div>'
@@ -1348,7 +1350,7 @@ function scopeSheet(){
       $('#scAdd',s).onclick=()=>{
         const p=+$('#scP',s).value,l=+$('#scL',s).value,all=$('#scAll',s).checked;
         if(p<0&&l<0){toast('Pilih kolom part number atau kolom lokasi.');return;}
-        const locs=new Set();let add=0,miss=0;
+        const locs=new Set();let add=0,miss=0;const missEx=[];const LI=looseIdx();
         const dc=+$('#scD',s).value;let use=rows;
         if(dc>=0){const ok=new Set(Array.from(s.querySelectorAll('.scDc:checked')).map(c=>c.value));if(!ok.size){toast('Pilih minimal satu tanggal.');return;}use=rows.filter(x=>ok.has(ymd(x[dc])));}
         const cu=+$('#scU',s).value,cq=+$('#scQ',s).value,cf=+$('#scF',s).value;
@@ -1356,11 +1358,11 @@ function scopeSheet(){
           if(p>=0&&norm(x[p]))mvNew.push({p:String(x[p]).trim(),l:l>=0?String(x[l]==null?'':x[l]).trim():'',f:cf>=0?String(x[cf]==null?'':x[cf]).trim():'',t:dc>=0?(ymd(x[dc])||''):'',u:cu>=0?String(x[cu]==null?'':x[cu]).trim():'',q:cq>=0?(parseQty(x[cq])||0):0});
           const pn=p>=0?String(x[p]==null?'':x[p]).trim():'',lc=l>=0?String(x[l]==null?'':x[l]).trim():'';
           if(norm(lc)&&(all||p<0))locs.add(keyOf(lc));
-          if(pn){const arr=M.byPart.get(keyOf(pn))||[];if(!arr.length)miss++;else{let sl=norm(lc)?arr.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc)):arr;if(!sl.length)sl=arr;sl.forEach(y=>{const k=ik(y);if(!list.has(k)){list.add(k);add++;}});}}
+          if(pn){const arr=M.byPart.get(keyOf(pn))||LI.get(loose(pn))||[];if(!arr.length){miss++;if(missEx.length<3&&missEx.indexOf(pn)<0)missEx.push(pn);}else{let sl=norm(lc)?arr.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc)):arr;if(!sl.length)sl=arr;sl.forEach(y=>{const k=ik(y);if(!list.has(k)){list.add(k);add++;}});}}
         });
         if(locs.size)MS.list.forEach(x=>{if(norm(x.l)&&locs.has(keyOf(x.l))){const k=ik(x);if(!list.has(k)){list.add(k);add++;}}});
         $('#scN',s).textContent=fmt(list.size);m.hidden=true;
-        toast(fmt(add)+' part ditambahkan'+(miss?', '+fmt(miss)+' part tidak ada di database dilewati':''));
+        toast(fmt(add)+' part ditambahkan'+(miss?', '+fmt(miss)+' part tidak ada di database dilewati (contoh: '+missEx.join(', ')+')':''));
       };
     }catch(err){console.error(err);toast('File tidak bisa dibaca. Pakai .xlsx, .xls, atau .csv.');}
   });
