@@ -290,6 +290,7 @@ main{padding-bottom:40px}
       <div class="panel"><h2 style="font-size:24px">MENU STO MOVE</h2><div class="small muted">Pilih opname menghitung semua stok atau hanya part yang bergerak (masuk atau keluar). Impor file mutasi di sini; tanggal, petugas, dan qty-nya juga dipakai untuk Telusuri Selisih.</div><div id="stoInfo" style="margin-top:10px"></div></div>
       <div id="dbScope" class="note" hidden></div>
       <button id="scopeBtn" class="btn pri block" type="button" hidden>Atur STO Move &amp; impor mutasi</button>
+      <button id="stoExport" class="btn block" type="button"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>Ekspor daftar STO Move ke Excel</button>
     </section>
 
     <!-- RIWAYAT STO -->
@@ -747,20 +748,58 @@ async function applyImport(){
 /* ekspor Excel */
 async function saveXlsx(wb,filename){
   if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat. Muat ulang halaman.');return;}
-  let dl=null;try{dl=await window.claude.use('downloads');}catch(e){}
-  if(!dl){toast('Ekspor file tidak tersedia di tampilan ini. Buka halaman ini lewat Claude.');return;}
+  let dl=null;try{if(window.claude&&window.claude.use)dl=await window.claude.use('downloads');}catch(e){}
   try{
     const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-    const r=await dl.save({filename:filename,data:out});
-    if(r&&r.status)toast('File Excel siap');
+    if(dl){
+      const r=await dl.save({filename:filename,data:out});
+      if(r&&r.status)toast('File Excel siap');
+      return;
+    }
+    const blob=new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+    toast('File Excel diunduh: '+filename);
   }catch(e){if(!e||e.code!=='declined')toast('Gagal menyimpan file Excel.');}
 }
 function sheetOf(aoa,widths){const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=widths.map(w=>({wch:w}));return ws;}
+/* lembar hitung siap cetak: urut lokasi lalu part number, ada kolom kosong untuk tulis hasil hitung */
+function countSheetAoa(list,title){
+  const srt=list.slice().sort((a,b)=>String(a.l||'~').localeCompare(String(b.l||'~'),'id',{numeric:true})||String(a.p).localeCompare(String(b.p),'id',{numeric:true}));
+  const tq=srt.reduce((t,x)=>t+(Number(x.q)||0),0);
+  return [[title],['Dicetak',new Date().toLocaleString('id-ID')],['Jumlah part',srt.length,'Total qty sistem',tq],[],
+    ['No','Part Number','Deskripsi','Qty Sistem','Lokasi','PIC','Hitung','Keterangan']
+  ].concat(srt.map((x,i)=>[i+1,x.p,x.d,x.q,x.l||'',hasOwner(x)?uName(own(x)):'','','']));
+}
+const COUNT_W=[6,24,44,12,14,18,12,24];
+function dbFiltered(){
+  const q=norm($('#dbQ').value),lf=$('#dbLoc').value;let base=MS.list;
+  if(lf==='__none')base=base.filter(x=>!norm(x.l));else if(lf&&lf!=='all')base=base.filter(x=>norm(x.l)&&keyOf(x.l)===lf);
+  return q?base.filter(x=>norm(x.p).includes(q)||norm(x.d).includes(q)):base;
+}
 $('#dbExport').addEventListener('click',()=>{
   if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat.');return;}
+  if(!MS.list.length){toast('Database masih kosong.');return;}
+  const rows=dbFiltered();if(!rows.length){toast('Tidak ada part yang cocok dengan filter.');return;}
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Deskripsi','Qty','Lokasi','PIC']].concat(MS.list.map(x=>[x.p,x.d,x.q,x.l||'',hasOwner(x)?uName(own(x)):''])),[24,44,12,14,18]),'Database');
+  XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Deskripsi','Qty','Lokasi','PIC']].concat(rows.map(x=>[x.p,x.d,x.q,x.l||'',hasOwner(x)?uName(own(x)):''])),[24,44,12,14,18]),'Database');
+  XLSX.utils.book_append_sheet(wb,sheetOf(countSheetAoa(rows,'Lembar Hitung Database Stok'),COUNT_W),'Lembar Hitung');
   saveXlsx(wb,'database-stok.xlsx');
+});
+$('#stoExport').addEventListener('click',()=>{
+  if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat.');return;}
+  const moved=scopeMode();
+  const list=moved?MS.list.filter(x=>D.scopeSet.has(ik(x))):MS.list;
+  if(!list.length){toast(moved?'Daftar STO Move masih kosong. Impor file mutasi dulu.':'Database masih kosong.');return;}
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,sheetOf(countSheetAoa(list,moved?'Daftar STO Move (hanya part yang bergerak)':'Daftar Full Stok'),COUNT_W),'Daftar STO Move');
+  if(MV.list.length){
+    const rank=new Map();MS.list.forEach(x=>{if(D.scopeSet.has(ik(x)))rank.set(keyOf(x.p),1);});
+    const mv=MV.list.slice().sort((a,b)=>String(b.t||'').localeCompare(String(a.t||''))||String(a.p).localeCompare(String(b.p),'id',{numeric:true}));
+    XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Tanggal','Petugas','Qty','Lokasi Asal','Lokasi Tujuan']].concat(mv.map(x=>[x.p,x.t||'',x.u||'',x.q||0,x.f||'',x.l||''])),[24,12,20,10,16,16]),'Mutasi');
+  }
+  saveXlsx(wb,(moved?'sto-move-':'full-stok-')+new Date().toISOString().slice(0,10)+'.xlsx');
 });
 $('#dbTemplate').addEventListener('click',()=>{
   if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat.');return;}
