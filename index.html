@@ -1012,18 +1012,160 @@ function Counter(p,cfg){
   if(cfg.modes)$('#'+p+'Seg').addEventListener('click',e=>{const b=e.target.closest('button');if(b){mode=b.dataset.m;limit=40;render();}});
   return {render:render};
 }
-$('#v-hit').innerHTML=counterHTML('hit','Progres hitung','Scan atau ketik part number');
+$('#v-hit').innerHTML=counterHTML('hit','Progres hitung','Scan lokasi atau part number',
+  '<div class="note small">Hitung per lokasi: pilih lokasi, semua part di lokasi itu muncul. Submit tiap part setelah dihitung, part yang sudah disubmit hilang dari daftar.</div>'
+  +'<div class="seg" id="hitSeg" role="group" aria-label="Daftar hitung"><button type="button" data-m="pending" aria-pressed="true">Belum dihitung</button><button type="button" data-m="done" aria-pressed="false">Sudah dihitung</button></div>');
 $('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan atau ketik part selisih',
   '<div class="note small">Daftar ini hanya berisi part yang hitungan pertamanya selisih. Hasil recount menggantikan hitungan pertama di Report.</div>'
   +'<div class="seg" id="recSeg" role="group" aria-label="Daftar recount"><button type="button" data-m="pending" aria-pressed="true">Perlu recount</button><button type="button" data-m="done" aria-pressed="false">Sudah recount</button></div>');
 
-const hitC=Counter('hit',{
-  col:()=>'counts-'+sid,map:()=>D.counts,scope:()=>visibleParts('hit'),foreign:foreignMsg,allowNew:true,
-  pendWord:'belum dihitung',doneWord:'sudah dihitung',action:'Hitung',prevWord:'Sudah dihitung',
-  hint:'',info:k=>stokHTML(k,false),rowInfo:k=>stokHTML(k,false),
-  emptyScope:()=>scopeMode()&&!D.scopeSet.size?'MENU STO MOVE: daftar part yang dihitung masih kosong. Admin perlu mengaturnya di MENU STO MOVE.':!M.byKey.size?'Database masih kosong. Isi dulu lewat menu Database.':(isAdmin()?'Tidak ada part pada filter ini.':'Belum ada part yang ditugaskan ke kamu. Minta admin membagi tugas.'),
-  allDone:'Semua part sudah dihitung. Part yang selisih ada di menu Recount.'
-});
+/* ---------- Hitung per LOKASI: pilih lokasi, semua part di lokasi itu muncul, submit per part, yang sudah submit hilang dari list ---------- */
+function LocCounter(p){
+  let openG=null,limit=60,mode='pending',newItem=null,hl=null;
+  const E=id=>$('#'+p+id);
+  const NAT=(a,b)=>String(a).localeCompare(String(b),'en',{numeric:true});
+  const gkey=v=>norm(v.w)+'|'+norm(v.l);
+  function groups(){
+    const scope=visibleParts(p),g=new Map();let tot=0,dn=0;
+    scope.forEach((v,k)=>{
+      const gk=gkey(v);let o=g.get(gk);
+      if(!o){o={gk:gk,l:v.l||'',w:v.w||'',items:[]};g.set(gk,o);}
+      const rec=D.counts.get(k);tot++;if(rec)dn++;
+      o.items.push({key:k,p:v.p,d:v.d,l:v.l||'',w:v.w||'',rec:rec||null});
+    });
+    g.forEach(o=>{o.items.sort((a,b)=>NAT(a.p,b.p));o.pend=o.items.filter(x=>!x.rec).length;o.done=o.items.length-o.pend;});
+    if(newItem){const rec=D.counts.get(newItem.key)||null;g.set('__new',{gk:'__new',l:'',w:'',isNew:true,items:[Object.assign({},newItem,{rec:rec})],pend:rec?0:1,done:rec?1:0});}
+    const arr=Array.from(g.values()).filter(o=>!o.isNew).sort((a,b)=>{
+      if(!a.l!==!b.l)return a.l?-1:1;
+      return NAT(a.l,b.l)||NAT(a.w,b.w);
+    });
+    return {scope:scope,g:g,arr:arr,tot:tot,dn:dn};
+  }
+  const gName=o=>o.isNew?'Part belum ada di database':(o.l||'(tanpa lokasi)');
+  const rowsOf=o=>o.items.filter(x=>mode==='done'?!!x.rec:!x.rec);
+  function render(){
+    const G=groups(),q=norm(E('Scan').value);
+    E('Prog').textContent=fmt(G.dn)+' / '+fmt(G.tot);E('Bar').style.width=(G.tot?Math.round(G.dn/G.tot*100):0)+'%';
+    $$('#'+p+'Seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===mode));
+    const box=E('List');
+    if(!G.tot){E('Head').textContent='';box.innerHTML=empty(scopeMode()&&!D.scopeSet.size?'MENU STO MOVE: daftar part yang dihitung masih kosong. Admin perlu mengaturnya di MENU STO MOVE.':!M.byKey.size?'Database masih kosong. Isi dulu lewat menu Database.':(isAdmin()?'Tidak ada part pada filter ini.':'Belum ada part yang ditugaskan ke kamu. Minta admin membagi tugas.'));renderPanel(G);return;}
+    let arr=G.arr.filter(o=>rowsOf(o).length>0);
+    const all=arr.length;
+    if(q)arr=arr.filter(o=>norm(o.l).includes(q)||norm(o.w)===q||o.items.some(x=>norm(x.p).includes(q)||norm(x.d).includes(q)));
+    E('Head').textContent=q?fmt(arr.length)+' lokasi cocok dengan pencarian':fmt(all)+(mode==='done'?' lokasi sudah ada yang dihitung':' lokasi masih ada part yang belum dihitung');
+    if(!arr.length)box.innerHTML=empty(q?'Tidak ada lokasi atau part yang cocok.':(mode==='done'?'Belum ada yang dihitung.':'Semua part sudah dihitung. Part yang selisih ada di menu Recount.'));
+    else{
+      const show=arr.slice(0,limit);
+      box.innerHTML=show.map(o=>{
+        const rs=rowsOf(o),n=rs.length;
+        const pv=rs.slice(0,3).map(x=>esc(x.p)).join(', ')+(n>3?' +'+(n-3)+' lagi':'');
+        return '<button class="row tap" type="button" data-loc="'+esc(o.gk)+'"'+(openG===o.gk?' style="border-color:var(--accent)"':'')+'><div class="rm"><div style="font-size:19px;font-weight:700" class="mono">'+esc(o.l||'(tanpa lokasi)')+'</div>'
+          +'<div class="meta">'+(o.w?'<span>WH '+esc(o.w)+'</span>':'')+'<span>'+fmt(n)+(mode==='done'?' part sudah dihitung':' part belum dihitung')+'</span><span>dari '+fmt(o.items.length)+' part</span></div>'
+          +'<div class="ds" style="margin-top:4px">'+pv+'</div></div><span class="btn sm">'+(mode==='done'?'Lihat':'Hitung')+'</span></button>';
+      }).join('')+(arr.length>show.length?'<button class="btn block" type="button" id="'+p+'More">Tampilkan lebih banyak</button>':'');
+    }
+    renderPanel(G);
+  }
+  /* simpan isi qty yang sedang diketik supaya tidak hilang waktu data masuk dari perangkat lain */
+  function snap(pn){const m={};pn.querySelectorAll('[data-q]').forEach(i=>{m[i.dataset.q]=i.value;});const a=document.activeElement;return {m:m,f:(a&&a.dataset&&a.dataset.q&&pn.contains(a))?a.dataset.q:null};}
+  function renderPanel(G){
+    const pn=E('Panel');
+    const o=openG?G.g.get(openG):null;
+    if(!o){openG=null;pn.hidden=true;pn.innerHTML='';return;}
+    const rs=rowsOf(o),keep=snap(pn);
+    const act=mode==='done'?'Simpan perubahan':'Submit';
+    pn.hidden=false;
+    pn.innerHTML='<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><div class="small muted">Lokasi'+(o.w?' · WH '+esc(o.w):'')+'</div><div class="mono" style="font-size:26px;font-weight:700;overflow-wrap:anywhere">'+esc(gName(o))+'</div></div><button class="btn" type="button" id="'+p+'Close">Tutup</button></div>'
+      +(o.isNew?'<div class="note">Part ini tidak ada di database. Tetap bisa dihitung dan akan muncul sebagai selisih plus.</div>':'')
+      +'<div class="small muted">'+(rs.length?(mode==='done'?fmt(rs.length)+' part sudah dihitung di lokasi ini. Ubah qty lalu simpan untuk menggantikan hasil lama.':fmt(rs.length)+' part belum dihitung di lokasi ini. Isi qty tiap part lalu Submit. Part yang sudah di-submit otomatis hilang dari daftar; lokasi tetap muncul selama masih ada part yang belum dihitung.'):(mode==='done'?'Belum ada part yang dihitung di lokasi ini.':'Semua part di lokasi ini sudah dihitung.'))+'</div>'
+      +rs.map(x=>{
+        const prev=x.rec;
+        return '<div class="row" data-k="'+esc(x.key)+'" style="grid-template-columns:minmax(0,1fr);'+(hl===x.key?'border-color:var(--accent);':'')+'"><div class="rm">'+pnLink(x.p)+'<div class="ds">'+(esc(x.d)||'<i>tanpa deskripsi</i>')+'</div>'+stokHTML(x.key,false)
+          +(prev?'<div class="note small">Hasil sekarang: <b>'+fmt(prev.q)+'</b>'+(prev.by?' oleh '+esc(prev.by):'')+'</div>':'')+'</div>'
+          +'<div class="stepper"><button type="button" data-act="min" aria-label="Kurangi">−</button><input type="text" inputmode="decimal" placeholder="0" data-q="'+esc(x.key)+'" aria-label="Qty hasil hitung '+esc(x.p)+'" value="'+(prev&&!(x.key in keep.m)?esc(String(prev.q)):'')+'"><button type="button" data-act="plus" aria-label="Tambah">+</button></div>'
+          +'<button class="btn pri block" type="button" data-act="sub">'+act+'</button></div>';
+      }).join('')
+      +(rs.length>1?'<button class="btn block" type="button" id="'+p+'All">'+act+' semua yang sudah diisi</button>':'');
+    pn.querySelectorAll('[data-q]').forEach(i=>{if(i.dataset.q in keep.m)i.value=keep.m[i.dataset.q];});
+    if(keep.f){const i=pn.querySelector('[data-q="'+(window.CSS&&CSS.escape?CSS.escape(keep.f):keep.f)+'"]');if(i)i.focus();}
+  }
+  async function save(it,qv){
+    const q=parseQty(qv);
+    if(q===null||q<0){toast('Isi qty hasil hitung dengan angka.');return false;}
+    const prev=D.counts.get(it.key);
+    return await safe(()=>store.set('counts-'+sid,it.key,{p:it.p,l:it.l||'',w:it.w||'',q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1}));
+  }
+  function itemOf(k){const G=groups(),o=openG&&G.g.get(openG);return o?o.items.find(x=>x.key===k):null;}
+  function open(gk,part){
+    openG=gk;hl=part||null;render();
+    E('Panel').scrollIntoView({block:'nearest',behavior:'smooth'});
+    if(part){const i=E('Panel').querySelector('[data-q="'+(window.CSS&&CSS.escape?CSS.escape(part):part)+'"]');if(i)i.focus();}
+  }
+  E('Panel').addEventListener('click',async e=>{
+    if(e.target.closest('#'+p+'Close')){openG=null;hl=null;newItem=null;render();E('Scan').focus();return;}
+    if(e.target.closest('#'+p+'All')){
+      const jobs=[];E('Panel').querySelectorAll('[data-q]').forEach(i=>{if(String(i.value).trim()!==''){const it=itemOf(i.dataset.q);if(it)jobs.push([it,i.value]);}});
+      if(!jobs.length){toast('Belum ada qty yang diisi.');return;}
+      for(const j of jobs){const q=parseQty(j[1]);if(q===null||q<0){toast('Qty '+j[0].p+' harus berupa angka.');return;}}
+      let n=0;for(const j of jobs){if(await save(j[0],j[1]))n++;else break;}
+      if(n)toast('Tersimpan '+fmt(n)+' part');
+      render();return;
+    }
+    const b=e.target.closest('[data-act]');if(!b)return;
+    const row=b.closest('[data-k]');if(!row)return;
+    const qi=row.querySelector('[data-q]');
+    if(b.dataset.act==='min'){qi.value=Math.max(0,(parseQty(qi.value)||0)-1);return;}
+    if(b.dataset.act==='plus'){qi.value=(parseQty(qi.value)||0)+1;return;}
+    if(b.dataset.act==='sub'){
+      const it=itemOf(row.dataset.k);if(!it)return;
+      b.disabled=true;
+      const ok=await save(it,qi.value);
+      if(ok){toast('Tersimpan: '+it.p+' = '+fmt(parseQty(qi.value)));hl=null;render();}
+      else b.disabled=false;
+    }
+  });
+  E('Panel').addEventListener('keydown',e=>{
+    if(e.key!=='Enter')return;const qi=e.target.closest&&e.target.closest('[data-q]');if(!qi)return;
+    e.preventDefault();const b=qi.closest('[data-k]').querySelector('[data-act=sub]');if(b)b.click();
+  });
+  function handleScan(v){
+    const q=norm(v);if(!q)return;
+    const G=groups();
+    /* 1. nama lokasi persis */
+    const lm=G.arr.filter(o=>o.l&&norm(o.l)===q);
+    if(lm.length===1){E('Scan').value='';open(lm[0].gk);return;}
+    if(lm.length>1){toast(fmt(lm.length)+' lokasi bernama sama (beda WH). Pilih dari daftar.');render();return;}
+    /* 2. part number persis */
+    const pm=[];G.arr.forEach(o=>o.items.forEach(x=>{if(keyOf(x.p)===keyOf(q))pm.push({o:o,x:x});}));
+    if(pm.length===1){E('Scan').value='';mode=pm[0].x.rec?'done':'pending';open(pm[0].o.gk,pm[0].x.key);return;}
+    if(pm.length>1){toast('Part ini ada di '+fmt(pm.length)+' lokasi. Pilih lokasi dari daftar.');render();return;}
+    /* 3. sebagian: filter daftar */
+    const part=G.arr.filter(o=>norm(o.l).includes(q)||o.items.some(x=>norm(x.p).includes(q)));
+    if(part.length===1){const o=part[0];const xs=o.items.filter(x=>norm(x.p).includes(q));if(xs.length===1&&!norm(o.l).includes(q)){E('Scan').value='';mode=xs[0].rec?'done':'pending';open(o.gk,xs[0].key);return;}}
+    if(part.length){toast(fmt(part.length)+' lokasi cocok. Pilih dari daftar.');render();return;}
+    const fm=foreignMsg(keyOf(q));if(fm){toast(fm);return;}
+    newItem={key:keyOf(v),p:String(v).trim(),d:'',l:'',w:''};E('Scan').value='';mode='pending';open('__new');
+  }
+  E('Who').addEventListener('change',()=>{whoF[p]=E('Who').value;limit=60;openG=null;render();});
+  E('Form').addEventListener('submit',e=>{e.preventDefault();handleScan(E('Scan').value);});
+  E('Scan').addEventListener('input',()=>{limit=60;render();});
+  E('List').addEventListener('click',e=>{
+    if(e.target.closest('#'+p+'More')){limit+=60;render();return;}
+    const b=e.target.closest('[data-loc]');if(b)open(b.dataset.loc);
+  });
+  E('Seg').addEventListener('click',e=>{const b=e.target.closest('button');if(b){mode=b.dataset.m;limit=60;openG=null;hl=null;render();}});
+  E('Cam').addEventListener('change',async e=>{
+    const f=e.target.files[0];e.target.value='';if(!f)return;
+    if(!('BarcodeDetector' in window)){toast('Browser HP ini belum bisa membaca barcode dari foto. Pakai scanner atau ketik manual.');return;}
+    try{
+      const bmp=await createImageBitmap(f);const res=await new BarcodeDetector().detect(bmp);
+      if(!res.length){toast('Barcode tidak terbaca. Foto lebih dekat dan lurus.');return;}
+      E('Scan').value=res[0].rawValue;handleScan(res[0].rawValue);
+    }catch(err){toast('Gagal membaca barcode dari foto.');}
+  });
+  return {render:render};
+}
+const hitC=LocCounter('hit');
 let recScopeCache=null;
 const recC=Counter('rec',{
   col:()=>'recounts-'+sid,map:()=>D.recounts,allowNew:false,modes:true,
