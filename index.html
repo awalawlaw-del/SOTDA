@@ -361,8 +361,8 @@ const sgn=n=>(n>0?'+':n<0?'−':'')+fmt(Math.abs(n));
 const round=n=>Math.round(n*1000)/1000;
 const norm=s=>String(s==null?'':s).trim().replace(/\s+/g,' ').toUpperCase();
 const keyOf=s=>{let o='';for(const ch of norm(s)){o+=/[A-Z0-9_\-+:@]/.test(ch)?ch:'~'+ch.codePointAt(0).toString(16)+'.';}return o.slice(0,190)||'_';};
-const rk=(p,l)=>keyOf(p).slice(0,110)+(norm(l)?'@@'+keyOf(l).slice(0,70):'');
-const ik=x=>rk(x.p,x.l);
+const rk=(p,l,w)=>keyOf(p).slice(0,110)+(norm(l)?'@@'+keyOf(l).slice(0,70):'')+(norm(w)?'##'+keyOf(w).slice(0,12):'');
+const ik=x=>rk(x.p,x.l,x.w);
 const gimg=p=>'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(p);
 const pnLink=p=>'<a class="pn" href="'+esc(gimg(p))+'" target="_blank" rel="noopener noreferrer" title="Cari gambar di Google">'+esc(p)+'</a>';
 const fmtTime=t=>{try{return new Date(t).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}};
@@ -425,7 +425,7 @@ function ChunkSet(name,size,pick){
     }
   };
 }
-const MS=ChunkSet('master',300,x=>({p:x.p,d:x.d||'',q:Number(x.q)||0,l:x.l||'',a:x.a||''}));
+const MS=ChunkSet('master',300,x=>({p:x.p,d:x.d||'',q:Number(x.q)||0,l:x.l||'',a:x.a||'',w:x.w||''}));
 
 const MV=ChunkSet('mv',250,x=>({p:x.p,l:x.l||'',f:x.f||'',t:x.t||'',u:x.u||'',q:Number(x.q)||0,k:x.k||''}));
 let MVI=new Map();
@@ -455,7 +455,11 @@ const uName=u=>{const x=D.users.get(u);return x?(x.name||u):(u||'');};
 const locList=()=>Array.from(D.locs.entries()).map(([k,v])=>({key:k,n:v.n||k,pic:v.pic?resolvePic(v.pic):''})).sort((a,b)=>a.n.localeCompare(b.n,'en',{numeric:true}));
 const picOf=l=>{if(!norm(l))return '';const v=D.locs.get(keyOf(l));return v&&v.pic?resolvePic(v.pic):'';};
 /* pemilik part = PIC lokasi (dibaca langsung dari Lokasi & PIC); bila lokasi belum punya PIC, pakai penugasan manual */
-const own=x=>picOf(x.l)||((x.a&&D.users.has(x.a))?x.a:'');
+/* WH depo (H5A, H5B): semua stok di WH itu (kolom WhN di file stok) masuk ke PIC yang diatur di PIC Lokasi untuk lokasi bernama H5A / H5B.
+   WH H50 dan lainnya tidak diubah: ikut PIC lokasi masing-masing. */
+const DEPOT_WH=['H5A','H5B'];
+const isDepot=w=>DEPOT_WH.indexOf(norm(w))>=0;
+const own=x=>(x.w&&isDepot(x.w)&&picOf(x.w))||picOf(x.l)||((x.a&&D.users.has(x.a))?x.a:'');
 const hasOwner=x=>!!own(x);
 /* mode: loc = ikut PIC lokasi (bila lokasi belum punya PIC, penugasan lama dibiarkan), one = satu orang, keep = tidak diubah */
 function asg(mode,who,l,ex){
@@ -503,7 +507,7 @@ function fillWho(p){
 function rebuildMaster(){MS.rebuild(D.chunks);M={byKey:new Map(MS.list.map(x=>[ik(x),x])),byPart:new Map()};MS.list.forEach(x=>{const k=keyOf(x.p);if(!M.byPart.has(k))M.byPart.set(k,[]);M.byPart.get(k).push(x);});}
 async function saveMaster(list){
   const seen=new Map();
-  list.forEach(x=>{const k=ik(x);if(norm(x.p))seen.set(k,{p:String(x.p).trim(),d:x.d||'',q:Number(x.q)||0,l:String(x.l||'').trim(),a:x.a||''});});
+  list.forEach(x=>{const k=ik(x);if(norm(x.p))seen.set(k,{p:String(x.p).trim(),d:x.d||'',q:Number(x.q)||0,l:String(x.l||'').trim(),a:x.a||'',w:x.w||''});});
   await MS.save(Array.from(seen.values()).sort((a,b)=>a.p.localeCompare(b.p,'en',{numeric:true})));
 }
 /* satu baris laporan per part. Hitung akhir = recount bila ada, kalau tidak hitungan pertama. Selisih = hitung akhir - stok sistem */
@@ -511,7 +515,7 @@ function buildReport(){
   const rows=[];const seen=new Set();
   const mk=(key,p,d,sys)=>{
     const c=D.counts.get(key),rc=D.recounts.get(key);
-    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
+    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
       r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
@@ -631,7 +635,7 @@ $('#dbQ').addEventListener('input',()=>{dbLimit=60;renderDb();});
 $('#dbLoc').addEventListener('change',()=>{dbLimit=60;renderDb();});
 function locMeta(x){
   const bits=[];
-  if(x.l)bits.push('<span>Lokasi '+esc(x.l)+'</span>');
+  if(x.w)bits.push('<span>WH '+esc(x.w)+'</span>');if(x.l)bits.push('<span>Lokasi '+esc(x.l)+'</span>');
   if(hasOwner(x))bits.push('<span>PIC '+esc(uName(own(x)))+'</span>');else bits.push('<span class="badge pick">Belum ditugaskan</span>');
   return '<div class="meta">'+bits.join('')+'</div>';
 }
@@ -655,6 +659,7 @@ function partSheet(key){
     +'<label class="f">Part number<input id="sPn" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" value="'+esc(it?it.p:'')+'"'+(it?' readonly':'')+'></label>'
     +'<label class="f">Deskripsi<input id="sDs" type="text" value="'+esc(it?it.d:'')+'"></label>'
     +'<label class="f">Qty stok sistem<input id="sQ" type="text" inputmode="decimal" value="'+(it?esc(it.q):'')+'"></label>'
+    +'<label class="f">WH (H50, H5A, H5B)<input id="sWh" type="text" list="whDl" autocapitalize="characters" autocorrect="off" spellcheck="false" value="'+esc(it?it.w||'':'')+'"'+(it?' readonly':'')+'></label><datalist id="whDl"><option value="H50"><option value="H5A"><option value="H5B"></datalist>'
     +(isAdmin()?'<label class="f">Lokasi<input id="sLc" type="text" list="locDl" autocapitalize="characters" autocorrect="off" spellcheck="false" value="'+esc(it?it.l||'':'')+'"></label><datalist id="locDl">'+locList().map(x=>'<option value="'+esc(x.n)+'">').join('')+'</datalist>'
       +'<label class="f">Ditugaskan ke<select id="sAs">'+asOpts(it?(it.a===picOf(it.l)?'__loc':(it.a||'')):'__loc')+'</select></label>':'')
     +'<div id="sErr" class="err" role="alert"></div>'
@@ -666,10 +671,10 @@ function partSheet(key){
     const p=$('#sPn',s).value.trim(),q=parseQty($('#sQ',s).value);
     if(!p){$('#sErr',s).textContent='Isi part number.';return;}
     if(q===null){$('#sErr',s).textContent='Isi qty dengan angka.';return;}
-    if(!it&&M.byKey.has(rk(p,isAdmin()?$('#sLc',s).value:''))){$('#sErr',s).textContent='Part number + lokasi ini sudah ada.';return;}
+    if(!it&&M.byKey.has(rk(p,isAdmin()?$('#sLc',s).value:'',$('#sWh',s).value))){$('#sErr',s).textContent='Part number + lokasi ini sudah ada.';return;}
     let lc=it?(it.l||''):'',a=it?(it.a||''):(isAdmin()?'':me);
     if(isAdmin()){lc=$('#sLc',s).value.trim();const v=$('#sAs',s).value;a=v==='__loc'?picOf(lc):v;}
-    const list=MS.list.filter(x=>ik(x)!==key);list.push({p:p,d:$('#sDs',s).value.trim(),q:q,l:lc,a:a});
+    const list=MS.list.filter(x=>ik(x)!==key);list.push({p:p,d:$('#sDs',s).value.trim(),q:q,l:lc,a:a,w:it?(it.w||''):norm($('#sWh',s).value)});
     closeSheet();if(await safe(async()=>{await saveMaster(list);await ensureLocs([lc]);}))toast('Tersimpan');
   };
   if(it)$('#sDel',s).onclick=async()=>{
@@ -692,7 +697,8 @@ $('#xlsIn').addEventListener('change',async e=>{
     let h=rows.findIndex(r=>r.filter(c=>String(c).trim()!=='').length>=2);if(h<0)h=0;
     const head=(rows[h]||[]).map((c,i)=>String(c).trim()||('Kolom '+(i+1)));
     const find=(re,fb)=>{const i=head.findIndex(x=>re.test(x));return i>=0?i:fb;};
-    imp={name:f.name,head:head,data:rows.slice(h+1),pn:find(/part\s*(no|num|number)|material(?!\s*desc)|^pn$|kode|item\s*(no|code)/i,0),ds:find(/desc|deskripsi|nama|name|uraian/i,head.length>1?1:0),q:find(/qty|quantity|stok|stock|jumlah|unrestricted/i,head.length>2?2:0),lc:find(/lokasi|location|gudang|warehouse|posisi|^loc|^bin$|storage\s*bin|rak/i,-1)};
+    imp={name:f.name,head:head,data:rows.slice(h+1),pn:find(/part\s*(no|num|number)|material(?!\s*desc)|^pn$|kode|item\s*(no|code)/i,0),ds:find(/desc|deskripsi|nama|name|uraian/i,head.length>1?1:0),q:find(/qty|quantity|stok|stock|jumlah|unrestricted/i,head.length>2?2:0),lc:find(/lokasi|location|gudang|warehouse|posisi|^loc|^bin$|stor\.?\s*bin|storage\s*bin|rak/i,-1),wh:-1};
+    {const hd=imp.head,bi=(()=>{let b=-1,bs=0;hd.forEach((_,i)=>{let sc=0;rows.slice(h+1,h+400).forEach(r=>{if(/^H5[0AB]$/i.test(norm(r[i])))sc++;});if(sc>bs){bs=sc;b=i;}});return b;})();imp.wh=bi>=0?bi:hd.findIndex(x=>/^wh|whn|warehouse|wh\s*no/i.test(x));if(imp.lc===imp.wh)imp.lc=hd.findIndex(x=>/lokasi|location|^loc|^bin$|stor\.?\s*bin|storage\s*bin|rak/i.test(x));}
     renderImport();
   }catch(err){console.error(err);toast('File tidak bisa dibaca. Pakai .xlsx, .xls, atau .csv.');}
 });
@@ -704,7 +710,8 @@ function renderImport(){
    +'<label class="f">Kolom part number<select id="iPn">'+opts(imp.pn)+'</select></label>'
    +'<label class="f">Kolom deskripsi<select id="iDs">'+opts(imp.ds)+'</select></label>'
    +'<label class="f">Kolom qty<select id="iQ">'+opts(imp.q)+'</select></label>'
-   +'<label class="f">Kolom lokasi (supaya tampil di Hitung dan Recount)<select id="iLc"><option value="-1">(tidak ada kolom lokasi)</option>'+opts(imp.lc)+'</select></label>'
+   +'<label class="f">Kolom lokasi / bin (supaya tampil di Hitung dan Recount)<select id="iLc"><option value="-1">(tidak ada kolom lokasi)</option>'+opts(imp.lc)+'</select></label>'
+   +'<label class="f">Kolom WH (H50, H5A, H5B)<select id="iWh"><option value="-1">(tidak ada kolom WH)</option>'+opts(imp.wh)+'</select></label>'
    +(isAdmin()?'<div class="small muted">Bagikan tugas hitung ke:</div><div class="radio"><label><input type="radio" name="iAs" value="loc"'+(locList().some(x=>x.pic)?' checked':'')+'>Sesuai lokasi: otomatis baca database lokasi, masuk ke akun PIC masing-masing</label><label><input type="radio" name="iAs" value="one"'+(locList().some(x=>x.pic)?'':' checked')+'>Satu orang saja</label><label><input type="radio" name="iAs" value="keep">Jangan ubah penugasan</label></div><label class="f" id="iWhoWrap" hidden>Pilih orang<select id="iWho">'+userOpts('',[])+'</select></label>':'')
    +'<div class="note small">File ini <b>menggantikan seluruh isi Database Stock</b>: data lama dihapus, diganti isi file baru.</div><div hidden><label><input type="radio" name="iMode" value="merge">x</label>'
    +(isAdmin()?'<label><input type="radio" name="iMode" value="replace" checked>Ganti semua isi database</label>':'')+'</div>'
@@ -718,7 +725,7 @@ function renderImport(){
   $('#iGo').onclick=applyImport;
 }
 async function applyImport(){
-  const ip=+$('#iPn').value,id=+$('#iDs').value,iq=+$('#iQ').value,il=+$('#iLc').value;
+  const ip=+$('#iPn').value,id=+$('#iDs').value,iq=+$('#iQ').value,il=+$('#iLc').value,iwh=+$('#iWh').value;
   const mode='replace';
   const am=isAdmin()?((document.querySelector('input[name=iAs]:checked')||{}).value||'keep'):'keep';
   const who=am==='one'?$('#iWho').value:'';
@@ -726,22 +733,22 @@ async function applyImport(){
   const incoming=new Map();let skipped=0;
   imp.data.forEach(r=>{
     const p=String(r[ip]==null?'':r[ip]).trim();if(!p){skipped++;return;}
-    const q=parseQty(r[iq])||0,d=String(r[id]==null?'':r[id]).trim(),l=il>=0?String(r[il]==null?'':r[il]).trim():'',k=rk(p,l);
-    const ex=incoming.get(k);if(ex){ex.q=round(ex.q+q);if(!ex.d)ex.d=d;if(!ex.l)ex.l=l;}else incoming.set(k,{p:p,d:d,q:q,l:l});
+    const q=parseQty(r[iq])||0,d=String(r[id]==null?'':r[id]).trim(),l=il>=0?String(r[il]==null?'':r[il]).trim():'',w=iwh>=0?norm(r[iwh]):'',k=rk(p,l,w);
+    const ex=incoming.get(k);if(ex){ex.q=round(ex.q+q);if(!ex.d)ex.d=d;if(!ex.l)ex.l=l;}else incoming.set(k,{p:p,d:d,q:q,l:l,w:w});
   });
   if(!incoming.size){toast('Tidak ada baris dengan part number.');return;}
   if(mode==='replace'&&!await ask('Ganti <b>seluruh</b> isi database dengan '+fmt(incoming.size)+' part dari file ini?','Ganti semua',true))return;
   let list;
-  if(mode==='replace')list=Array.from(incoming.entries()).map(([k,v])=>{const ex=M.byKey.get(k);const l=v.l||(ex?ex.l||'':'');return {p:v.p,d:v.d,q:v.q,l:l,a:asg(am,who,l,ex)};});
+  if(mode==='replace')list=Array.from(incoming.entries()).map(([k,v])=>{const ex=M.byKey.get(k);const l=v.l||(ex?ex.l||'':'');return {p:v.p,d:v.d,q:v.q,l:l,a:asg(am,who,l,ex),w:v.w||''};});
   else{
     const m=new Map(MS.list.map(x=>[ik(x),x]));
-    incoming.forEach((v,k)=>{const ex=m.get(k);const l=v.l||(ex?ex.l||'':'');m.set(k,{p:ex?ex.p:v.p,d:v.d||(ex?ex.d:''),q:v.q,l:l,a:asg(am,who,l,ex)});});
+    incoming.forEach((v,k)=>{const ex=m.get(k);const l=v.l||(ex?ex.l||'':'');m.set(k,{p:ex?ex.p:v.p,d:v.d||(ex?ex.d:''),q:v.q,l:l,a:asg(am,who,l,ex),w:v.w||''});});
     list=Array.from(m.values());
   }
   const touched=new Set(incoming.keys());
   const noOwner=list.filter(x=>touched.has(ik(x))&&!own(x)).length;
   $('#iGo').disabled=true;$('#iGo').textContent='Menyimpan…';
-  const ok=await safe(async()=>{await saveMaster(list);await ensureLocs(list.map(x=>x.l));});
+  const ok=await safe(async()=>{await saveMaster(list);await ensureLocs(list.map(x=>x.l).concat(list.some(x=>isDepot(x.w))?DEPOT_WH:[]));});
   if(ok){toast(fmt(incoming.size)+' part diproses'+(noOwner?', '+fmt(noOwner)+' belum ditugaskan':'')+(skipped?', '+fmt(skipped)+' baris kosong dilewati':''));imp=null;}
   renderImport();
 }
@@ -822,7 +829,7 @@ const stokHTML=(k,withC)=>{
   const it=M.byKey.get(k),c=D.counts.get(k);
   return '<div class="grid4" style="margin-top:8px"><span>Stok sistem<b>'+(it?fmt(it.q):'-')+'</b></span>'+(withC?'<span>Hitungan 1<b>'+(c?fmt(c.q):'-')+'</b></span>':'')+'</div>';
 };
-function locLine(k){const l=(M.byKey.get(k)||{}).l;return l?'<div style="margin-top:6px;font-size:17px;font-weight:600">Lokasi: <span class="mono">'+esc(l)+'</span></div>':'<div class="meta"><span class="badge pick">Tanpa lokasi</span></div>';}
+function locLine(k){const it0=M.byKey.get(k)||{},l=it0.l,w=it0.w;return l?'<div style="margin-top:6px;font-size:17px;font-weight:600">'+(w?'WH <span class="mono">'+esc(w)+'</span> · ':'')+'Lokasi: <span class="mono">'+esc(l)+'</span></div>':'<div class="meta"><span class="badge pick">Tanpa lokasi</span></div>';}
 function Counter(p,cfg){
   let sel=null,limit=40,mode='pending';
   const E=id=>$('#'+p+id);
@@ -882,7 +889,7 @@ function Counter(p,cfg){
     if(!sel)return;const q=parseQty($('#'+p+'Qty').value);
     if(q===null||q<0){toast('Isi qty hasil hitung dengan angka.');return;}
     const s=sel,prev=cfg.map().get(s.key);$('#'+p+'Submit').disabled=true;
-    const ok=await safe(()=>store.set(cfg.col(),s.key,{p:s.p,l:((M.byKey.get(s.key)||{}).l||''),q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1}));
+    const ok=await safe(()=>store.set(cfg.col(),s.key,{p:s.p,l:((M.byKey.get(s.key)||{}).l||''),w:((M.byKey.get(s.key)||{}).w||''),q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1}));
     if(ok){toast('Tersimpan: '+s.p+' = '+fmt(q));E('Scan').value='';clear(true);render();}
     else{const b=$('#'+p+'Submit');if(b)b.disabled=false;}
   }
@@ -958,7 +965,7 @@ const repPn=a=>D.users.has(a)?uName(a):'';
 const fmtFull=t=>{try{return new Date(t).toLocaleString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}};
 function repRowHTML(r,pn){
   const pic=r.a?pn(r.a):'';
-  const meta=(r.l||pic||r.cb)?'<div class="meta">'+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+'</div>':'';
+  const meta=(r.l||pic||r.cb)?'<div class="meta">'+(r.w?'<span>WH '+esc(r.w)+'</span>':'')+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+'</div>':'';
   const v=x=>x===null||x===undefined?'-':fmt(x);
   return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta
     +'<div class="grid4"><span>Stok<b>'+fmt(r.sys)+'</b></span><span>Hitung 1<b>'+v(r.c1)+'</b></span><span>Recount<b>'+v(r.rec)+'</b></span><span>Akhir<b>'+v(r.fin)+'</b></span></div>'+((r.st==='plus'||r.st==='minus')?'<button class="btn sm trb" type="button" data-trace="'+encodeURIComponent(r.p)+'">Telusuri selisih</button>':'')+'</div>'
@@ -1022,10 +1029,10 @@ $('#repQ').addEventListener('input',()=>{repLimit=60;renderRep();});
 $('#repList').addEventListener('click',e=>{if(e.target.closest('#repMore')){repLimit+=60;renderRep();}});
 function reportWB(rows,pn,titleRows){
   const g=splitGroups(rows),S=summarize(rows);
-  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','Lokasi','PIC','Penghitung','Recount oleh'];
+  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh'];
   const cell=x=>x===null||x===undefined?'':x;
-  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'']);
-  const W=[24,44,14,10,10,12,10,14,18,18,18];
+  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'']);
+  const W=[24,44,14,10,10,12,10,8,14,18,18,18];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,sheetOf(titleRows.concat([[],
     ['Total part',S.tot],['Sudah dihitung',S.done],['Belum dihitung',S.pend],
@@ -1364,8 +1371,10 @@ function scopeSheet(){
       const find=(re,fb)=>{const i=head.findIndex(x=>re.test(x));return i>=0?i:fb;};
       /* tebak kolom part & lokasi dari isinya: kolom yang paling banyak cocok dengan database */
       let ip=best(hit);if(ip<0)ip=find(/part|material|kode|item|^pn$/i,0);
-      let il=best(t=>locStat.has(keyOf(t)));if(il<0)il=find(/lokasi|location|^loc|^bin$|rak/i,-1);
-      let idt=-1,bd=0;head.forEach((x,i)=>{if(!/conf.*date|confirm|pick\s*date|tanggal|tgl|date|time|waktu/i.test(x))return;let sc=0;sample.forEach(y=>{if(ymd(y[i]))sc++;});if(sc>bd){bd=sc;idt=i;}});
+      /* kolom WH (H50, H5A, H5B): dikenali dari isinya, atau dari nama kolom */
+      let iw=best(t=>/^H5[0AB]$/i.test(norm(t)));if(iw<0)iw=find(/^wh|warehouse|wh\s*no|plant|depo|gudang/i,-1);
+      let il=best(t=>locStat.has(keyOf(t)));if(il<0||il===iw)il=find(/lokasi|location|^loc|^bin$|storage\s*bin|rak/i,-1);if(il===iw)il=-1;
+      let idt=-1,bd=0;head.forEach((x,i)=>{if(!/conf.*date|confirm|pick\s*date|tanggal|tgl|date|time|waktu/i.test(x))return;let sc=0;sample.forEach(y=>{if(ymd(y[i]))sc++;});if(/conf.*pick.*date|pick\s*date/i.test(x)&&sc>0)sc+=1e6;if(sc>bd){bd=sc;idt=i;}});
       const iu=find(/user|petugas|picker|operator|oleh|created|nama/i,-1),iq=find(/qty|quantity|jumlah/i,-1),ifr=find(/source|asal|from/i,-1);
       const o=sel=>'<option value="-1">(tidak ada)</option>'+head.map((x,i)=>'<option value="'+i+'"'+(i===sel?' selected':'')+'>'+esc(x)+'</option>').join('');
       m.hidden=false;
@@ -1373,6 +1382,7 @@ function scopeSheet(){
         +(wbk.SheetNames.length>1?'<label class="f">Sheet<select data-f="sh">'+wbk.SheetNames.map(n=>'<option value="'+esc(n)+'"'+(n===name?' selected':'')+'>'+esc(n)+'</option>').join('')+'</select></label>':'')
         +'<label class="f">Kolom part number<select data-f="p">'+o(ip)+'</select></label>'
         +'<label class="f">Kolom lokasi<select data-f="l">'+o(il)+'</select></label>'
+        +'<label class="f">Kolom WH (H50, H5A, H5B)<select data-f="w">'+o(iw)+'</select></label><div class="small muted">H5A dan H5B (depo) otomatis masuk ke PIC lokasi H5A / H5B di menu PIC Lokasi. H50 tetap ikut PIC lokasi masing-masing.</div>'
         +'<label class="f">Kolom tanggal<select data-f="d">'+o(idt)+'</select></label><div data-f="dates" class="radio"></div>'
         +'<div data-f="chk" class="note small"></div>'
         +'<label class="f">Kolom petugas<select data-f="u">'+o(iu)+'</select></label>'
@@ -1412,23 +1422,28 @@ function scopeSheet(){
       if(g('sh'))g('sh').addEventListener('change',e=>build(e.target.value,fname));
       rd();
       g('add').onclick=()=>{
-        const p=+g('p').value,l=+g('l').value,dc=+g('d').value,cu=+g('u').value,cq=+g('q').value,cf=+g('fr').value;
+        const p=+g('p').value,l=+g('l').value,dc=+g('d').value,cu=+g('u').value,cq=+g('q').value,cf=+g('fr').value,cw=+g('w').value;
         if(p<0&&l<0){toast('Pilih kolom part number atau kolom lokasi.');return;}
         if(dc>=0&&!m.querySelector('.scDc:checked')){toast('Pilih minimal satu tanggal.');return;}
         const use=useRows(),locs=new Set(),missEx=[];let add=0,miss=0;
         use.forEach(x=>{
-          const pn=p>=0?String(x[p]==null?'':x[p]).trim():'',lc=l>=0?String(x[l]==null?'':x[l]).trim():'';
+          const pn=p>=0?String(x[p]==null?'':x[p]).trim():'',lc=l>=0?String(x[l]==null?'':x[l]).trim():'',wh=cw>=0?norm(x[cw]):'';
           if(p>=0&&norm(pn))mvNew.push({p:pn,l:lc,f:cf>=0?String(x[cf]==null?'':x[cf]).trim():'',t:dc>=0?(ymd(x[dc])||''):'',u:cu>=0?String(x[cu]==null?'':x[cu]).trim():'',q:cq>=0?(parseQty(x[cq])||0):0,k:kind});
-          if(norm(lc)&&p<0)locs.add(keyOf(lc));
+          if(norm(lc)&&p<0)locs.add(keyOf(lc)+'|'+wh);
           if(pn){
             const arr=M.byPart.get(keyOf(pn))||LI.get(loose(pn))||[];
             if(!arr.length){miss++;if(missEx.length<3&&missEx.indexOf(pn)<0)missEx.push(pn);}
-            else{let sl=norm(lc)?arr.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc)):arr;if(!sl.length)sl=arr;sl.forEach(y=>{const k=ik(y);if(!list.has(k)){list.add(k);add++;}});}
+            else{
+              /* cocokkan part + WH + bin; kalau tidak ada yang pas, longgarkan: WH saja, lalu bin saja, lalu semua baris part itu */
+              const byW=wh?arr.filter(y=>norm(y.w)===wh):[],byL=norm(lc)?arr.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc)):[];
+              let sl=byW.filter(y=>byL.indexOf(y)>=0);if(!sl.length)sl=byW;if(!sl.length)sl=byL;if(!sl.length)sl=arr;
+              sl.forEach(y=>{const k=ik(y);if(!list.has(k)){list.add(k);add++;}});}
           }
         });
-        if(locs.size)MS.list.forEach(x=>{if(norm(x.l)&&locs.has(keyOf(x.l))){const k=ik(x);if(!list.has(k)){list.add(k);add++;}}});
+        if(locs.size)MS.list.forEach(x=>{if(norm(x.l)&&(locs.has(keyOf(x.l)+'|'+norm(x.w))||locs.has(keyOf(x.l)+'|'))){const k=ik(x);if(!list.has(k)){list.add(k);add++;}}});
         $('#scN',s).textContent=fmt(list.size);m.hidden=true;
-        const msg=fmt(add)+' part ditambahkan dari '+fname+(miss?', '+fmt(miss)+' part tidak ada di database dilewati (contoh: '+missEx.join(', ')+')':'');
+        const nDep=Array.from(list).filter(k=>{const it=M.byKey.get(k);return it&&isDepot(it.w);}).length,noPic=DEPOT_WH.filter(w=>nDep&&!picOf(w));
+        const msg=fmt(add)+' part ditambahkan dari '+fname+(nDep?' ('+fmt(nDep)+' part depo H5A/H5B'+(noPic.length?', tapi PIC lokasi '+noPic.join(' dan ')+' belum diisi di menu PIC Lokasi':'')+')':'')+(miss?', '+fmt(miss)+' part tidak ada di database dilewati (contoh: '+missEx.join(', ')+')':'');
         $('#rs_'+id,s).textContent=msg;toast(msg);
       };
     };
@@ -1499,7 +1514,7 @@ function moveSheet(){
         rows.forEach(x=>{
           const pn=g(x,p),fo=g(x,l),to=g(x,b);if(!pn||!to)return;
           const arr=M.byPart.get(keyOf(pn))||[];
-          let it=fo?M.byKey.get(rk(pn,fo)):null;
+          let it=fo?(arr.find(y=>keyOf(y.l||'')===keyOf(fo))||null):null;
           if(!it&&arr.length===1)it=arr[0];
           if(!it){miss++;return;}
           if(keyOf(to)!==keyOf(it.l||''))plan.set(ik(it),to);
