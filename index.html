@@ -287,10 +287,17 @@ main{padding-bottom:40px}
 
     <!-- MENU STO MOVE -->
     <section id="v-sto" class="view" hidden>
-      <div class="panel"><h2 style="font-size:24px">MENU STO MOVE</h2><div class="small muted">Pilih opname menghitung barang yang bergerak (upload barang masuk dan barang keluar), semua stok, atau sesuai lokasi yang dipilih. Tanggal, petugas, dan qty dari file mutasi juga dipakai untuk Telusuri Selisih.</div><div id="stoInfo" style="margin-top:10px"></div></div>
+      <div class="panel"><h2 style="font-size:24px">MENU STO MOVE</h2><div class="small muted">Pilih opname menghitung barang yang bergerak (upload barang masuk dan barang keluar) atau semua stok. Tanggal, petugas, dan qty dari file mutasi juga dipakai untuk Telusuri Selisih.</div><div id="stoInfo" style="margin-top:10px"></div></div>
       <div id="dbScope" class="note" hidden></div>
       <button id="scopeBtn" class="btn pri block" type="button" hidden>Atur STO Move</button>
       <button id="stoExport" class="btn block" type="button"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>Ekspor daftar STO Move ke Excel</button>
+    </section>
+
+    <!-- MENU STO LOKASI -->
+    <section id="v-lok" class="view" hidden>
+      <div class="panel"><h2 style="font-size:24px">MENU STO LOKASI</h2><div class="small muted">Pilih WH (H50, H5A, H5B) dan lokasinya. Daftar part diambil dari Database Stok, bukan dari barang masuk atau keluar. Menyimpan di sini mengganti daftar STO yang sedang aktif; hasil hitung yang sudah ada tidak dihapus.</div><div id="lokInfo" style="margin-top:10px"></div></div>
+      <button id="lokBtn" class="btn pri block" type="button">Atur STO Lokasi</button>
+      <button id="lokExport" class="btn block" type="button"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>Ekspor daftar STO Lokasi ke Excel</button>
     </section>
 
     <!-- RIWAYAT STO -->
@@ -339,6 +346,7 @@ main{padding-bottom:40px}
     <button class="tab" data-t="loc" data-admin><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>PIC Lokasi</button>
     <button class="tab" data-t="mvl" data-admin><svg viewBox="0 0 24 24"><path d="M4 8h13M13 4l4 4-4 4M20 16H7M11 12l-4 4 4 4"/></svg>Pindah Lokasi</button>
     <button class="tab" data-t="sto" data-admin><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4"/></svg>MENU STO MOVE</button>
+    <button class="tab" data-t="lok" data-admin><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><path d="M9 10h6M12 7v6"/></svg>MENU STO LOKASI</button>
     <button class="tab" data-t="hit"><svg viewBox="0 0 24 24"><path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M8 12l3 3 5-6"/></svg>Hitung</button>
     <button class="tab" data-t="rec"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg>Recount</button>
     <button class="tab" data-t="rep"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Report</button>
@@ -552,14 +560,15 @@ async function ensureLocs(names){
 const userOpts=(sel,extra)=>(extra||[]).concat(Array.from(D.users.keys()).sort().map(u=>[u,uName(u)+' ('+u+')'])).map(o=>'<option value="'+esc(o[0])+'"'+(o[0]===sel?' selected':'')+'>'+esc(o[1])+'</option>').join('');
 const asOpts=sel=>userOpts(sel,[['__loc','Sesuai PIC lokasi (otomatis)'],['','Belum ditugaskan']]);
 /* petugas hanya melihat part yang ditugaskan ke dia; admin bisa memfilter */
-function scopeKind(){const k=(D.meta.get('state')||{}).scope;return k==='moved'||k==='loc'||k==='wh'?k:'full';}
+function scopeKind(){const k=(D.meta.get('state')||{}).scope;return k==='moved'||k==='loc'?k:'full';}
 const WHS=['H50','H5A','H5B'];
-function whDesc(){const wc=(D.meta.get('state')||{}).whCfg||{};return WHS.map(w=>{const c=wc[w];return w+': '+(!c||c.m==='moved'?'barang bergerak':c.m==='loc'?fmt((c.locs||[]).length)+' lokasi':'tidak ikut');}).join(' · ');}
+const wkey=w=>norm(w)||'_';
+function whDesc(){const wc=(D.meta.get('state')||{}).whCfg||{};return Object.keys(wc).filter(w=>wc[w].m!=='off').map(w=>(w==='_'?'Tanpa WH':w)+': '+(wc[w].m==='all'?'semua stok':fmt((wc[w].locs||[]).length)+' lokasi')).join(' · ')||'belum ada yang dipilih';}
 function scopeMode(){return scopeKind()!=='full';}
 function inScope(k){return !scopeMode()||D.scopeSet.has(k);}
 function scopeBanner(){
   const on=scopeMode();
-  const sk=scopeKind(),nl=((D.meta.get('state')||{}).scopeLocs||[]).length;const t=!on?'':sk==='wh'?'<b>MENU STO MOVE: per WH</b> ('+whDesc()+'; '+fmt(D.scopeSet.size)+' part). Part lain tidak ikut dihitung dan tidak masuk laporan.':sk==='loc'?'<b>MENU STO MOVE: sesuai lokasi pilihan</b> ('+fmt(nl)+' lokasi, '+fmt(D.scopeSet.size)+' part). Part di lokasi lain tidak ikut dihitung dan tidak masuk laporan.':'<b>MENU STO MOVE: hanya barang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.';
+  const sk=scopeKind(),nl=((D.meta.get('state')||{}).scopeLocs||[]).length;const t=!on?'':sk==='loc'?'<b>STO LOKASI</b> ('+(((D.meta.get('state')||{}).whCfg)?whDesc():fmt(nl)+' lokasi')+'; '+fmt(D.scopeSet.size)+' part). Part di lokasi lain tidak ikut dihitung dan tidak masuk laporan.':'<b>MENU STO MOVE: hanya barang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.';
   ['dbScope','repScope'].forEach(i=>{const e=$('#'+i);e.hidden=!on;e.innerHTML=t;});
 }
 function passWho(v,p){
@@ -677,7 +686,7 @@ function enter(){
 function go(t){
   tab=t;
   $$('.tab').forEach(b=>b.setAttribute('aria-current',b.dataset.t===t?'page':'false'));
-  ['db','loc','mvl','sto','his','hit','rec','rep'].forEach(x=>{$('#v-'+x).hidden=x!==t;});
+  ['db','loc','mvl','sto','lok','his','hit','rec','rep'].forEach(x=>{$('#v-'+x).hidden=x!==t;});
   renderActive();window.scrollTo(0,0);
 }
 $$('.tab').forEach(b=>b.addEventListener('click',()=>go(b.dataset.t)));
@@ -686,7 +695,7 @@ function scheduleRender(){if(rq)return;rq=requestAnimationFrame(()=>{rq=null;if(
 function renderActive(){
   $('#userBtn').textContent=userName();
   $$('.tab[data-admin]').forEach(b=>{b.hidden=!isAdmin();});$('#locBtn').hidden=!isAdmin();$('#asgBtn').hidden=!isAdmin();$('#scopeBtn').hidden=!isAdmin();scopeBanner();['dbWipe','mvBtn','hitWipe','recWipe','repWipe'].forEach(i=>{const e=$('#'+i);if(e)e.hidden=!isAdmin();});const xl=document.querySelector('label[for=xlsIn]');if(xl)xl.hidden=!isAdmin();
-  ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();},rep:renderRep})[tab]();
+  ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,lok:renderLok,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();},rep:renderRep})[tab]();
 }
 
 /* ---------- DATABASE ---------- */
@@ -880,7 +889,7 @@ $('#stoExport').addEventListener('click',()=>{
   const list=moved?MS.list.filter(x=>D.scopeSet.has(ik(x))):MS.list;
   if(!list.length){toast(moved?'Daftar STO Move masih kosong. Impor file mutasi dulu.':'Database masih kosong.');return;}
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,sheetOf(countSheetAoa(list,moved?(scopeKind()==='loc'?'Daftar STO sesuai lokasi':scopeKind()==='wh'?'Daftar STO per WH':'Daftar STO barang bergerak'):'Daftar Full Stok'),COUNT_W),'Daftar STO Move');
+  XLSX.utils.book_append_sheet(wb,sheetOf(countSheetAoa(list,moved?(scopeKind()==='loc'?'Daftar STO Lokasi':'Daftar STO barang bergerak'):'Daftar Full Stok'),COUNT_W),'Daftar STO Move');
   if(MV.list.length){
     const mv=MV.list.slice().sort((a,b)=>String(b.t||'').localeCompare(String(a.t||''))||String(a.p).localeCompare(String(b.p),'id',{numeric:true}));
     XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Jenis','Tanggal','Petugas','Qty','Lokasi Asal','Lokasi Tujuan']].concat(mv.map(x=>[x.p,x.k==='in'?'Masuk':x.k==='out'?'Keluar':'',x.t||'',x.u||'',x.q||0,x.f||'',x.l||''])),[24,10,12,20,10,16,16]),'Mutasi');
@@ -1145,7 +1154,7 @@ async function saveSnapshot(name,startAt,rep,S){
 }
 function newOpnameSheet(){
   const rep=buildReport(),S=summarize(rep),st=D.meta.get('state')||{};
-  const def='STO '+new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})+(scopeMode()?(scopeKind()==='loc'?' (per lokasi)':scopeKind()==='wh'?' (per WH)':' (part bergerak)'):'');
+  const def='STO '+new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})+(scopeMode()?(scopeKind()==='loc'?' (STO lokasi)':' (part bergerak)'):'');
   const s=openSheet('<h2>Mulai opname baru</h2>'
     +(S.done?'<div>Hasil opname sekarang ('+fmt(S.done)+' dari '+fmt(S.tot)+' part dihitung) disimpan dulu ke <b>Riwayat</b>, lalu semua part kembali berstatus belum dihitung.</div><label class="f">Nama opname<input id="oN" type="text" value="'+esc(def)+'"></label>'
       :'<div>Belum ada part yang dihitung, jadi tidak ada yang disimpan ke Riwayat. Semua status tetap kembali ke belum dihitung.</div>')
@@ -1391,81 +1400,27 @@ const loose=s=>norm(s).replace(/\.0+$/,'').replace(/[^A-Z0-9]/g,'').replace(/^0+
 function looseIdx(){const m=new Map();MS.list.forEach(x=>{const k=loose(x.p);if(!k)return;if(!m.has(k))m.set(k,[]);m.get(k).push(x);});return m;}
 function scopeSheet(){
   const st=D.meta.get('state')||{};
-  const list=new Set(D.scopeSet);let mvNew=[];
-  if(st.scope==='wh'){const wc0=st.whCfg||{};Array.from(list).forEach(k=>{const it=M.byKey.get(k),c=it&&wc0[norm(it.w)];if(c&&c.m!=='moved')list.delete(k);});}
-  const selLocs=new Set(Array.isArray(st.scopeLocs)?st.scopeLocs:[]);
+  const list=scopeKind()==='moved'?new Set(D.scopeSet):new Set();let mvNew=[];
+  const kind0=scopeKind()==='full'?'full':'moved';
   const locStat=new Map();
   MS.list.forEach(x=>{if(!norm(x.l))return;const k=keyOf(x.l),r=locStat.get(k)||{n:String(x.l).trim(),c:0};r.c++;locStat.set(k,r);});
-  const locArr=Array.from(locStat.entries()).sort((a,b)=>a[1].n.localeCompare(b[1].n,'id',{numeric:true}));
-  const kind0=scopeKind();
-  /* STO per WH: tiap WH boleh ikut barang bergerak, dipilih lokasinya sendiri, atau tidak ikut */
-  const whSel={},whStats={},whCnt={};
-  WHS.forEach(w=>{
-    const c=(st.whCfg||{})[w];whSel[w]={m:(c&&c.m)||'moved',locs:new Set((c&&c.locs)||[])};
-    const m=new Map();let n=0;
-    MS.list.forEach(x=>{if(norm(x.w)!==w)return;n++;if(!norm(x.l))return;const k=keyOf(x.l),r=m.get(k)||{n:String(x.l).trim(),c:0};r.c++;m.set(k,r);});
-    whCnt[w]=n;whStats[w]=Array.from(m.entries()).sort((a,b)=>a[1].n.localeCompare(b[1].n,'id',{numeric:true}));
-  });
-  const whHTML=WHS.map(w=>'<div class="panel" data-wh="'+w+'"><b>'+w+'</b> <span class="small muted">'+fmt(whCnt[w])+' baris stok · '+fmt(whStats[w].length)+' lokasi</span><div class="radio">'
-    +[['moved','Ikut STO Move (barang bergerak dari upload)'],['loc','Tentukan lokasinya sendiri'],['off','Tidak ikut STO']].map(o=>'<label><input type="radio" name="whm_'+w+'" value="'+o[0]+'"'+(whSel[w].m===o[0]?' checked':'')+'>'+o[1]+'</label>').join('')
-    +'</div><div class="whLoc" hidden><input type="search" class="whS" placeholder="Cari lokasi '+w+'" aria-label="Cari lokasi"><div class="tools"><button type="button" class="btn whAll">Pilih semua yang tampil</button><button type="button" class="btn whNone">Kosongkan pilihan</button></div><div class="small muted whN"></div><div class="radio whL" style="max-height:220px;overflow:auto"></div></div></div>').join('');
   const card=(id,title,hint)=>'<div class="panel"><b>'+title+'</b><div class="small muted">'+hint+'</div>'
     +'<div class="tools"><label class="btn pri" for="in_'+id+'">Upload file '+title.toLowerCase()+'</label><input id="in_'+id+'" type="file" accept=".xlsx,.xls,.csv" hidden></div>'
     +'<div id="mp_'+id+'" hidden></div><div id="rs_'+id+'" class="small"></div></div>';
-  const s=openSheet('<h2>MENU STO MOVE</h2><div class="small muted">Pilih apa yang mau dihitung pada opname yang sedang berjalan.</div>'
+  const s=openSheet('<h2>MENU STO MOVE</h2><div class="small muted">Pilih apa yang mau dihitung pada opname yang sedang berjalan. STO berdasarkan lokasi ada di menu STO LOKASI.</div>'
    +'<div class="radio">'
-   +'<label><input type="radio" name="scM" value="wh"'+(kind0==='wh'?' checked':'')+'>STO per WH: tentukan tiap WH (H50, H5A, H5B) ikut barang bergerak, pilih lokasi sendiri, atau tidak ikut</label>'
    +'<label><input type="radio" name="scM" value="moved"'+(kind0==='moved'?' checked':'')+'>STO barang bergerak: part yang masuk atau keluar</label>'
-   +'<label><input type="radio" name="scM" value="full"'+(kind0==='full'?' checked':'')+'>STO semua stok: semua part di database</label>'
-   +'<label><input type="radio" name="scM" value="loc"'+(kind0==='loc'?' checked':'')+'>STO sesuai lokasi: pilih lokasi yang mau dihitung</label></div>'
-   +'<div id="scWh" hidden>'+whHTML+'</div>'
+   +'<label><input type="radio" name="scM" value="full"'+(kind0==='full'?' checked':'')+'>STO semua stok: semua part di database</label></div>'
    +'<div id="scMv"><div class="small muted">Daftar sekarang: <b id="scN">'+fmt(list.size)+'</b> part. Upload barang masuk dan barang keluar di kotaknya masing-masing. Boleh lebih dari satu file, hasilnya ditambahkan ke daftar.</div>'
    +card('in','Barang Masuk','Receiving atau barang yang masuk ke gudang. Setelah file dibaca, pilih tanggalnya (otomatis kemarin).')
    +card('out','Barang Keluar','Barang yang keluar dari gudang. Setelah file dibaca, pilih tanggalnya (otomatis kemarin).')
    +'<button id="scClr" class="btn dan block" type="button">Kosongkan daftar</button></div>'
-   +'<div id="scLc" hidden><input id="lcS" type="search" placeholder="Cari lokasi" aria-label="Cari lokasi">'
-   +'<div class="tools"><button id="lcAll" class="btn" type="button">Pilih semua yang tampil</button><button id="lcNone" class="btn" type="button">Kosongkan pilihan</button></div>'
-   +'<div id="lcN" class="small muted"></div><div id="lcL" class="radio" style="max-height:260px;overflow:auto"></div></div>'
    +'<div id="scErr" class="err" role="alert"></div><div class="two"><button id="scNo" class="btn" type="button">Batal</button><button id="scGo" class="btn pri" type="button">Simpan</button></div>');
   const mode=()=>(s.querySelector('input[name=scM]:checked')||{}).value;
-  const sync=()=>{const md=mode(),anyMv=WHS.some(w=>whSel[w].m==='moved');$('#scMv',s).hidden=!(md==='moved'||(md==='wh'&&anyMv));$('#scLc',s).hidden=md!=='loc';$('#scWh',s).hidden=md!=='wh';};
-  s.addEventListener('change',e=>{if(e.target.name==='scM')sync();});
-  const whBox=w=>$('#scWh',s).querySelector('[data-wh="'+w+'"]');
-  const whCount=w=>{const b=whBox(w),c=whSel[w];let n=0;c.locs.forEach(k=>{const r=whStats[w].find(z=>z[0]===k);if(r)n+=r[1].c;});b.querySelector('.whN').textContent=fmt(c.locs.size)+' lokasi dipilih · '+fmt(n)+' part';};
-  const whRender=w=>{
-    const b=whBox(w),c=whSel[w];b.querySelector('.whLoc').hidden=c.m!=='loc';
-    const q=norm(b.querySelector('.whS').value);
-    const rows=whStats[w].filter(x=>!q||norm(x[1].n).includes(q));
-    b.querySelector('.whL').innerHTML=rows.length?rows.map(x=>'<label><input type="checkbox" class="whC" value="'+esc(x[0])+'"'+(c.locs.has(x[0])?' checked':'')+'>'+esc(x[1].n)+' · '+fmt(x[1].c)+' part</label>').join(''):'<div class="small muted">'+(whStats[w].length?'Tidak ada lokasi yang cocok.':'Belum ada stok '+w+' di database.')+'</div>';
-    whCount(w);
-  };
-  const wh$=$('#scWh',s);
-  wh$.addEventListener('change',e=>{const t=e.target,b=t.closest('[data-wh]');if(!b)return;const w=b.dataset.wh;
-    if(t.type==='radio'){whSel[w].m=t.value;whRender(w);sync();}
-    else if(t.classList.contains('whC')){if(t.checked)whSel[w].locs.add(t.value);else whSel[w].locs.delete(t.value);whCount(w);}
-  });
-  wh$.addEventListener('input',e=>{if(e.target.classList.contains('whS'))whRender(e.target.closest('[data-wh]').dataset.wh);});
-  wh$.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const b=t.closest('[data-wh]');if(!b)return;const w=b.dataset.wh;
-    if(t.classList.contains('whAll')){b.querySelectorAll('.whC').forEach(c=>whSel[w].locs.add(c.value));whRender(w);}
-    else if(t.classList.contains('whNone')){whSel[w].locs.clear();whRender(w);}
-  });
-  WHS.forEach(whRender);sync();
+  const sync=()=>{$('#scMv',s).hidden=mode()!=='moved';};
+  s.addEventListener('change',e=>{if(e.target.name==='scM')sync();});sync();
   $('#scNo',s).onclick=closeSheet;
   $('#scClr',s).onclick=()=>{list.clear();mvNew=[];$('#scN',s).textContent='0';['in','out'].forEach(i=>{$('#rs_'+i,s).textContent='';});};
-
-  /* STO sesuai lokasi */
-  const lcCount=()=>{let n=0;selLocs.forEach(k=>{const r=locStat.get(k);if(r)n+=r.c;});$('#lcN',s).textContent=fmt(selLocs.size)+' lokasi dipilih · '+fmt(n)+' part';};
-  const lcRender=()=>{
-    const q=norm($('#lcS',s).value);
-    const rows=locArr.filter(x=>!q||norm(x[1].n).includes(q));
-    $('#lcL',s).innerHTML=rows.length?rows.map(x=>'<label><input type="checkbox" class="lcC" value="'+esc(x[0])+'"'+(selLocs.has(x[0])?' checked':'')+'>'+esc(x[1].n)+' · '+fmt(x[1].c)+' part</label>').join(''):'<div class="small muted">'+(locArr.length?'Tidak ada lokasi yang cocok.':'Database belum punya data lokasi.')+'</div>';
-    lcCount();
-  };
-  $('#lcS',s).addEventListener('input',lcRender);
-  $('#lcL',s).addEventListener('change',e=>{const c=e.target;if(c.classList.contains('lcC')){if(c.checked)selLocs.add(c.value);else selLocs.delete(c.value);lcCount();}});
-  $('#lcAll',s).onclick=()=>{s.querySelectorAll('.lcC').forEach(c=>{selLocs.add(c.value);});lcRender();};
-  $('#lcNone',s).onclick=()=>{selLocs.clear();lcRender();};
-  lcRender();
 
   /* STO barang bergerak: satu kotak upload untuk masuk, satu untuk keluar */
   const setupCard=(id,kind)=>{
@@ -1585,31 +1540,77 @@ function scopeSheet(){
   setupCard('in','in');setupCard('out','out');
 
   $('#scGo',s).onclick=async()=>{
-    const md=mode();let set=list,locs=null;
+    const md=mode();const set=list;
     if(md==='moved'&&!list.size){$('#scErr',s).textContent='Daftar masih kosong. Upload barang masuk atau barang keluar dulu.';return;}
-    if(md==='loc'){
-      if(!selLocs.size){$('#scErr',s).textContent='Pilih minimal satu lokasi.';return;}
-      set=new Set();MS.list.forEach(x=>{if(norm(x.l)&&selLocs.has(keyOf(x.l)))set.add(ik(x));});
-      locs=Array.from(selLocs);
-    }
-    let wcfg=null;
-    if(md==='wh'){
-      set=new Set();wcfg={};
-      WHS.forEach(w=>{wcfg[w]={m:whSel[w].m,locs:Array.from(whSel[w].locs)};});
-      MS.list.forEach(x=>{
-        const k=ik(x),w=norm(x.w),c=wcfg[w];
-        if(!c){if(list.has(k))set.add(k);return;}
-        if(c.m==='moved'){if(list.has(k))set.add(k);}
-        else if(c.m==='loc'){if(norm(x.l)&&whSel[w].locs.has(keyOf(x.l)))set.add(k);}
-      });
-      if(!set.size){$('#scErr',s).textContent='Hasilnya masih kosong. Upload barang bergerak, atau pilih lokasi, untuk minimal satu WH.';return;}
-    }
     closeSheet();
     if(mvNew.length)await safe(()=>saveMv(mvNew));
-    if(await safe(()=>saveScope(md,set,locs,wcfg)))toast(md==='wh'?'STO per WH ('+fmt(set.size)+' part)':md==='moved'?'STO barang bergerak ('+fmt(set.size)+' part)':md==='loc'?'STO sesuai lokasi ('+fmt(locs.length)+' lokasi, '+fmt(set.size)+' part)':'STO semua stok');
+    if(await safe(()=>saveScope(md,set)))toast(md==='moved'?'STO barang bergerak ('+fmt(set.size)+' part)':'STO semua stok');
   };
 }
 $('#scopeBtn').addEventListener('click',scopeSheet);
+
+/* ---------- STO LOKASI: daftar part dari Database Stok, per WH dan lokasi ---------- */
+function renderLok(){
+  const k=scopeKind();
+  $('#lokInfo').innerHTML=k==='loc'
+    ?'<b>STO Lokasi aktif</b><div class="small muted">'+esc(whDesc())+' · '+fmt(D.scopeSet.size)+' part di daftar STO.</div>'
+    :'<b>STO Lokasi belum aktif</b><div class="small muted">Mode sekarang: '+(k==='moved'?'STO barang bergerak':'STO semua stok')+'. Tekan Atur STO Lokasi untuk memakainya.</div>';
+}
+$('#lokExport').addEventListener('click',()=>{
+  if(scopeKind()!=='loc'){toast('STO Lokasi belum diatur.');return;}
+  $('#stoExport').click();
+});
+function lokSheet(){
+  const st=D.meta.get('state')||{};
+  const saved=scopeKind()==='loc'?(st.whCfg||{}):{};
+  const groups=WHS.slice();if(MS.list.some(x=>!norm(x.w)))groups.push('');
+  const sel={},stats={},cnt={};
+  groups.forEach(g=>{
+    const key=wkey(g),c=saved[key];sel[key]={m:(c&&c.m)||'off',locs:new Set((c&&c.locs)||[])};
+    const m=new Map();let n=0;
+    MS.list.forEach(x=>{if(norm(x.w)!==g)return;n++;if(!norm(x.l))return;const kk=keyOf(x.l),r=m.get(kk)||{n:String(x.l).trim(),c:0};r.c++;m.set(kk,r);});
+    cnt[key]=n;stats[key]=Array.from(m.entries()).sort((a,b)=>a[1].n.localeCompare(b[1].n,'id',{numeric:true}));
+  });
+  const panel=g=>{const key=wkey(g);return '<div class="panel" data-wh="'+key+'"><b>'+(g||'Tanpa WH')+'</b> <span class="small muted">'+fmt(cnt[key])+' baris stok · '+fmt(stats[key].length)+' lokasi</span><div class="radio">'
+    +[['off','Tidak ikut STO'],['all','Semua stok di WH ini'],['loc','Pilih lokasi sendiri']].map(o=>'<label><input type="radio" name="lk_'+key+'" value="'+o[0]+'"'+(sel[key].m===o[0]?' checked':'')+'>'+o[1]+'</label>').join('')
+    +'</div><div class="lkLoc" hidden><input type="search" class="lkS" placeholder="Cari lokasi" aria-label="Cari lokasi"><div class="tools"><button type="button" class="btn lkAll">Pilih semua yang tampil</button><button type="button" class="btn lkNone">Kosongkan pilihan</button></div><div class="small muted lkN"></div><div class="radio lkL" style="max-height:240px;overflow:auto"></div></div></div>';};
+  const s=openSheet('<h2>STO Lokasi</h2><div class="small muted">Daftar part diambil dari Database Stok ('+fmt(MS.list.length)+' baris). Tentukan tiap WH: tidak ikut, semua stok, atau lokasi tertentu.</div>'
+    +groups.map(panel).join('')
+    +'<div id="lkErr" class="err" role="alert"></div><div class="two"><button id="lkNo" class="btn" type="button">Batal</button><button id="lkGo" class="btn pri" type="button">Simpan</button></div>');
+  const box=key=>s.querySelector('[data-wh="'+key+'"]');
+  const count=key=>{let n=0;sel[key].locs.forEach(k=>{const r=stats[key].find(z=>z[0]===k);if(r)n+=r[1].c;});box(key).querySelector('.lkN').textContent=fmt(sel[key].locs.size)+' lokasi dipilih · '+fmt(n)+' part';};
+  const render=key=>{
+    const b=box(key),c=sel[key];b.querySelector('.lkLoc').hidden=c.m!=='loc';
+    const q=norm(b.querySelector('.lkS').value);
+    const rows=stats[key].filter(x=>!q||norm(x[1].n).includes(q));
+    b.querySelector('.lkL').innerHTML=rows.length?rows.map(x=>'<label><input type="checkbox" class="lkC" value="'+esc(x[0])+'"'+(c.locs.has(x[0])?' checked':'')+'>'+esc(x[1].n)+' · '+fmt(x[1].c)+' part</label>').join(''):'<div class="small muted">'+(stats[key].length?'Tidak ada lokasi yang cocok.':'Belum ada stok dengan lokasi di WH ini.')+'</div>';
+    count(key);
+  };
+  s.addEventListener('change',e=>{const t=e.target,b=t.closest('[data-wh]');if(!b)return;const key=b.dataset.wh;
+    if(t.type==='radio'){sel[key].m=t.value;render(key);}
+    else if(t.classList.contains('lkC')){if(t.checked)sel[key].locs.add(t.value);else sel[key].locs.delete(t.value);count(key);}
+  });
+  s.addEventListener('input',e=>{if(e.target.classList.contains('lkS'))render(e.target.closest('[data-wh]').dataset.wh);});
+  s.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const b=t.closest('[data-wh]');if(!b)return;const key=b.dataset.wh;
+    if(t.classList.contains('lkAll')){b.querySelectorAll('.lkC').forEach(c=>sel[key].locs.add(c.value));render(key);}
+    else if(t.classList.contains('lkNone')){sel[key].locs.clear();render(key);}
+  });
+  groups.forEach(g=>render(wkey(g)));
+  $('#lkNo',s).onclick=closeSheet;
+  $('#lkGo',s).onclick=async()=>{
+    const set=new Set(),cfg={};
+    groups.forEach(g=>{const key=wkey(g);cfg[key]={m:sel[key].m,locs:Array.from(sel[key].locs)};});
+    MS.list.forEach(x=>{
+      const key=wkey(x.w),c=cfg[key];if(!c)return;
+      if(c.m==='all')set.add(ik(x));
+      else if(c.m==='loc'&&norm(x.l)&&sel[key].locs.has(keyOf(x.l)))set.add(ik(x));
+    });
+    if(!set.size){$('#lkErr',s).textContent='Belum ada part yang dipilih. Pilih "Semua stok" atau centang minimal satu lokasi.';return;}
+    closeSheet();
+    if(await safe(()=>saveScope('loc',set,null,cfg)))toast('STO Lokasi ('+fmt(set.size)+' part)');
+  };
+}
+$('#lokBtn').addEventListener('click',lokSheet);
 
 /* tanggal dari Excel (serial, yyyy-mm-dd, dd/mm/yyyy, 17-Nov-2026) -> yyyy-mm-dd */
 function ymd(v){
@@ -1708,7 +1709,7 @@ function closeMenu(){$('.tabs').classList.remove('open');$('#sbScrim').hidden=tr
 $('#menuBtn').addEventListener('click',()=>{const t=$('.tabs'),o=!t.classList.contains('open');t.classList.toggle('open',o);$('#sbScrim').hidden=!o;});
 $('#sbScrim').addEventListener('click',closeMenu);
 $$('.tab').forEach(b=>b.addEventListener('click',closeMenu));
-function renderSto(){const k=scopeKind(),st=D.meta.get('state')||{},nl=(st.scopeLocs||[]).length;$('#stoInfo').innerHTML='<b>'+(k==='wh'?'Mode: STO per WH':k==='moved'?'Mode: STO barang bergerak':k==='loc'?'Mode: STO sesuai lokasi':'Mode: STO semua stok')+'</b><div class="small muted">'+(k==='full'?'Semua part di database ikut dihitung.':fmt(D.scopeSet.size)+' part di daftar STO'+(k==='loc'?' ('+fmt(nl)+' lokasi)':k==='wh'?' ('+whDesc()+')':'')+'.')+'</div>';}
+function renderSto(){const k=scopeKind(),st=D.meta.get('state')||{},nl=(st.scopeLocs||[]).length;$('#stoInfo').innerHTML='<b>'+(k==='moved'?'Mode: STO barang bergerak':k==='loc'?'Mode: STO Lokasi (diatur di menu STO LOKASI)':'Mode: STO semua stok')+'</b><div class="small muted">'+(k==='full'?'Semua part di database ikut dihitung.':fmt(D.scopeSet.size)+' part di daftar STO'+(k==='loc'?' ('+whDesc()+')':'')+'.')+'</div>';}
 function canonPic(t){t=String(t||'').trim();if(!t)return '';const u=t.toLowerCase();if(D.users.has(u))return u;const n=nameIdx().get(norm(t));if(n)return n;return /^[a-z0-9._-]{3,20}$/.test(u)?u:t;}
 let locLimit=80;
 function renderLoc(){
