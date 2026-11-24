@@ -1041,26 +1041,27 @@ function Counter(p,cfg){
 $('#v-hit').innerHTML=counterHTML('hit','Progres hitung','Scan lokasi atau part number',
   '<div class="note small">Hitung per lokasi: pilih lokasi, semua part di lokasi itu muncul. Submit tiap part setelah dihitung, part yang sudah disubmit hilang dari daftar.</div>'
   +'<div class="seg" id="hitSeg" role="group" aria-label="Daftar hitung"><button type="button" data-m="pending" aria-pressed="true">Belum dihitung</button><button type="button" data-m="done" aria-pressed="false">Sudah dihitung</button></div>');
-$('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan atau ketik part selisih',
-  '<div class="note small">Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button>'
+$('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan lokasi atau part number',
+  '<div class="note small">Per lokasi: pilih lokasi, lalu isi qty hasil recount tiap part dan Submit. Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button>'
   +'<div class="seg" id="recSeg" role="group" aria-label="Daftar recount"><button type="button" data-m="pending" aria-pressed="true">Perlu recount</button><button type="button" data-m="done" aria-pressed="false">Sudah recount</button></div>');
 
 /* ---------- Hitung per LOKASI: pilih lokasi, semua part di lokasi itu muncul, submit per part, yang sudah submit hilang dari list ---------- */
-function LocCounter(p){
+function LocCounter(p,C){
+  C=Object.assign({scope:()=>visibleParts(p),map:()=>D.counts,col:()=>'counts-'+sid,allowNew:true,stok:k=>stokHTML(k,false),pw:'belum dihitung',dw:'sudah dihitung',act:'Hitung',allDone:'Semua part sudah dihitung. Part yang selisih ada di menu Recount.',empty:null},C||{});
   let openG=null,limit=60,mode='pending',newItem=null,hl=null;
   const E=id=>$('#'+p+id);
   const NAT=(a,b)=>String(a).localeCompare(String(b),'en',{numeric:true});
   const gkey=v=>norm(v.w)+'|'+norm(v.l);
   function groups(){
-    const scope=visibleParts(p),g=new Map();let tot=0,dn=0;
+    const scope=C.scope(),map=C.map(),g=new Map();let tot=0,dn=0;
     scope.forEach((v,k)=>{
       const gk=gkey(v);let o=g.get(gk);
       if(!o){o={gk:gk,l:v.l||'',w:v.w||'',items:[]};g.set(gk,o);}
-      const rec=D.counts.get(k);tot++;if(rec)dn++;
+      const rec=map.get(k);tot++;if(rec)dn++;
       o.items.push({key:k,p:v.p,d:v.d,l:v.l||'',w:v.w||'',rec:rec||null});
     });
     g.forEach(o=>{o.items.sort((a,b)=>NAT(a.p,b.p));o.pend=o.items.filter(x=>!x.rec).length;o.done=o.items.length-o.pend;});
-    if(newItem){const rec=D.counts.get(newItem.key)||null;g.set('__new',{gk:'__new',l:'',w:'',isNew:true,items:[Object.assign({},newItem,{rec:rec})],pend:rec?0:1,done:rec?1:0});}
+    if(newItem&&C.allowNew){const rec=map.get(newItem.key)||null;g.set('__new',{gk:'__new',l:'',w:'',isNew:true,items:[Object.assign({},newItem,{rec:rec})],pend:rec?0:1,done:rec?1:0});}
     const arr=Array.from(g.values()).filter(o=>!o.isNew).sort((a,b)=>{
       if(!a.l!==!b.l)return a.l?-1:1;
       return NAT(a.l,b.l)||NAT(a.w,b.w);
@@ -1074,20 +1075,20 @@ function LocCounter(p){
     E('Prog').textContent=fmt(G.dn)+' / '+fmt(G.tot);E('Bar').style.width=(G.tot?Math.round(G.dn/G.tot*100):0)+'%';
     $$('#'+p+'Seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===mode));
     const box=E('List');
-    if(!G.tot){E('Head').textContent='';box.innerHTML=empty(scopeMode()&&!D.scopeSet.size?'MENU STO MOVE: daftar part yang dihitung masih kosong. Admin perlu mengaturnya di MENU STO MOVE.':!M.byKey.size?'Database masih kosong. Isi dulu lewat menu Database.':(isAdmin()?'Tidak ada part pada filter ini.':'Belum ada part yang ditugaskan ke kamu. Minta admin membagi tugas.'));renderPanel(G);return;}
+    if(!G.tot){E('Head').textContent='';box.innerHTML=empty(C.empty?C.empty():scopeMode()&&!D.scopeSet.size?'MENU STO MOVE: daftar part yang dihitung masih kosong. Admin perlu mengaturnya di MENU STO MOVE.':!M.byKey.size?'Database masih kosong. Isi dulu lewat menu Database.':(isAdmin()?'Tidak ada part pada filter ini.':'Belum ada part yang ditugaskan ke kamu. Minta admin membagi tugas.'));renderPanel(G);return;}
     let arr=G.arr.filter(o=>rowsOf(o).length>0);
     const all=arr.length;
     if(q)arr=arr.filter(o=>norm(o.l).includes(q)||norm(o.w)===q||o.items.some(x=>norm(x.p).includes(q)||norm(x.d).includes(q)));
-    E('Head').textContent=q?fmt(arr.length)+' lokasi cocok dengan pencarian':fmt(all)+(mode==='done'?' lokasi sudah ada yang dihitung':' lokasi masih ada part yang belum dihitung');
-    if(!arr.length)box.innerHTML=empty(q?'Tidak ada lokasi atau part yang cocok.':(mode==='done'?'Belum ada yang dihitung.':'Semua part sudah dihitung. Part yang selisih ada di menu Recount.'));
+    E('Head').textContent=q?fmt(arr.length)+' lokasi cocok dengan pencarian':fmt(all)+(' lokasi '+(mode==='done'?'ada part yang '+C.dw:'masih ada part yang '+C.pw));
+    if(!arr.length)box.innerHTML=empty(q?'Tidak ada lokasi atau part yang cocok.':(mode==='done'?'Belum ada part yang '+C.dw+'.':C.allDone));
     else{
       const show=arr.slice(0,limit);
       box.innerHTML=show.map(o=>{
         const rs=rowsOf(o),n=rs.length;
         const pv=rs.slice(0,3).map(x=>esc(x.p)).join(', ')+(n>3?' +'+(n-3)+' lagi':'');
         return '<button class="row tap" type="button" data-loc="'+esc(o.gk)+'"'+(openG===o.gk?' style="border-color:var(--accent)"':'')+'><div class="rm"><div style="font-size:19px;font-weight:700" class="mono">'+esc(o.l||'(tanpa lokasi)')+'</div>'
-          +'<div class="meta">'+(o.w?'<span>WH '+esc(o.w)+'</span>':'')+'<span>'+fmt(n)+(mode==='done'?' part sudah dihitung':' part belum dihitung')+'</span><span>dari '+fmt(o.items.length)+' part</span></div>'
-          +'<div class="ds" style="margin-top:4px">'+pv+'</div></div><span class="btn sm">'+(mode==='done'?'Lihat':'Hitung')+'</span></button>';
+          +'<div class="meta">'+(o.w?'<span>WH '+esc(o.w)+'</span>':'')+'<span>'+fmt(n)+' part '+(mode==='done'?C.dw:C.pw)+'</span><span>dari '+fmt(o.items.length)+' part</span></div>'
+          +'<div class="ds" style="margin-top:4px">'+pv+'</div></div><span class="btn sm">'+(mode==='done'?'Lihat':C.act)+'</span></button>';
       }).join('')+(arr.length>show.length?'<button class="btn block" type="button" id="'+p+'More">Tampilkan lebih banyak</button>':'');
     }
     renderPanel(G);
@@ -1103,10 +1104,10 @@ function LocCounter(p){
     pn.hidden=false;
     pn.innerHTML='<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><div class="small muted">Lokasi'+(o.w?' · WH '+esc(o.w):'')+'</div><div class="mono" style="font-size:26px;font-weight:700;overflow-wrap:anywhere">'+esc(gName(o))+'</div></div><button class="btn" type="button" id="'+p+'Close">Tutup</button></div>'
       +(o.isNew?'<div class="note">Part ini tidak ada di database. Tetap bisa dihitung dan akan muncul sebagai selisih plus.</div>':'')
-      +'<div class="small muted">'+(rs.length?(mode==='done'?fmt(rs.length)+' part sudah dihitung di lokasi ini. Ubah qty lalu simpan untuk menggantikan hasil lama.':fmt(rs.length)+' part belum dihitung di lokasi ini. Isi qty tiap part lalu Submit. Part yang sudah di-submit otomatis hilang dari daftar; lokasi tetap muncul selama masih ada part yang belum dihitung.'):(mode==='done'?'Belum ada part yang dihitung di lokasi ini.':'Semua part di lokasi ini sudah dihitung.'))+'</div>'
+      +'<div class="small muted">'+(rs.length?(mode==='done'?fmt(rs.length)+' part '+C.dw+' di lokasi ini. Ubah qty lalu simpan untuk menggantikan hasil lama.':fmt(rs.length)+' part '+C.pw+' di lokasi ini. Isi qty tiap part lalu Submit. Part yang sudah di-submit otomatis hilang dari daftar; lokasi tetap muncul selama masih ada part yang '+C.pw+'.'):(mode==='done'?'Belum ada part yang '+C.dw+' di lokasi ini.':'Semua part di lokasi ini sudah selesai.'))+'</div>'
       +rs.map(x=>{
         const prev=x.rec;
-        return '<div class="row" data-k="'+esc(x.key)+'" style="grid-template-columns:minmax(0,1fr);'+(hl===x.key?'border-color:var(--accent);':'')+'"><div class="rm">'+pnLink(x.p)+'<div class="ds">'+(esc(x.d)||'<i>tanpa deskripsi</i>')+'</div>'+stokHTML(x.key,false)
+        return '<div class="row" data-k="'+esc(x.key)+'" style="grid-template-columns:minmax(0,1fr);'+(hl===x.key?'border-color:var(--accent);':'')+'"><div class="rm">'+pnLink(x.p)+'<div class="ds">'+(esc(x.d)||'<i>tanpa deskripsi</i>')+'</div>'+C.stok(x.key)
           +(prev?'<div class="note small">Hasil sekarang: <b>'+fmt(prev.q)+'</b>'+(prev.by?' oleh '+esc(prev.by):'')+'</div>':'')+'</div>'
           +'<div class="stepper"><button type="button" data-act="min" aria-label="Kurangi">−</button><input type="text" inputmode="decimal" placeholder="0" data-q="'+esc(x.key)+'" aria-label="Qty hasil hitung '+esc(x.p)+'" value="'+(prev&&!(x.key in keep.m)?esc(String(prev.q)):'')+'"><button type="button" data-act="plus" aria-label="Tambah">+</button></div>'
           +'<button class="btn pri block" type="button" data-act="sub">'+act+'</button></div>';
@@ -1118,8 +1119,8 @@ function LocCounter(p){
   async function save(it,qv){
     const q=parseQty(qv);
     if(q===null||q<0){toast('Isi qty hasil hitung dengan angka.');return false;}
-    const prev=D.counts.get(it.key);
-    return await safe(()=>store.set('counts-'+sid,it.key,{p:it.p,l:it.l||'',w:it.w||'',q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1}));
+    const prev=C.map().get(it.key);
+    return await safe(()=>store.set(C.col(),it.key,{p:it.p,l:it.l||'',w:it.w||'',q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1}));
   }
   function itemOf(k){const G=groups(),o=openG&&G.g.get(openG);return o?o.items.find(x=>x.key===k):null;}
   function open(gk,part){
@@ -1169,6 +1170,7 @@ function LocCounter(p){
     const part=G.arr.filter(o=>norm(o.l).includes(q)||o.items.some(x=>norm(x.p).includes(q)));
     if(part.length===1){const o=part[0];const xs=o.items.filter(x=>norm(x.p).includes(q));if(xs.length===1&&!norm(o.l).includes(q)){E('Scan').value='';mode=xs[0].rec?'done':'pending';open(o.gk,xs[0].key);return;}}
     if(part.length){toast(fmt(part.length)+' lokasi cocok. Pilih dari daftar.');render();return;}
+    if(!C.allowNew){toast('Part ini tidak ada di daftar yang perlu recount.');return;}
     const fm=foreignMsg(keyOf(q));if(fm){toast(fm);return;}
     newItem={key:keyOf(v),p:String(v).trim(),d:'',l:'',w:''};E('Scan').value='';mode='pending';open('__new');
   }
@@ -1193,8 +1195,7 @@ function LocCounter(p){
 }
 const hitC=LocCounter('hit');
 let recScopeCache=null;
-const recC=Counter('rec',{
-  col:()=>'recounts-'+sid,map:()=>D.recounts,allowNew:false,modes:true,
+const recC=LocCounter('rec',{
   scope:()=>{
     const m=new Map();
     buildReport().forEach(r=>{
@@ -1202,19 +1203,15 @@ const recC=Counter('rec',{
       if(r.d1===0&&r.rec===null)return;
       const it=M.byKey.get(r.key);
       if(it?!recPass(it,r.key):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
-      m.set(r.key,{p:r.p,d:r.d});
+      m.set(r.key,{p:r.p,d:r.d,l:r.l||'',w:r.w||''});
     });
     return m;
   },
-  pendWord:'perlu recount',doneWord:'sudah recount',action:'Recount',prevWord:'Sudah direcount',
-  hint:'Hitung ulang fisiknya, lalu bandingkan dengan stok recount dan hitungan 1.',info:k=>stokHTML(k,true,true),rowInfo:k=>stokHTML(k,true,true)+recWho(k),
-  emptyScope:'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem).',
-  allDone:'Semua part selisih sudah direcount. Cek hasilnya di Report.',
-  doneInfo:key=>{
-    const c=D.counts.get(key);if(!c)return '';
-    const r=buildReport().find(x=>x.key===key);if(!r||r.diff===null)return '';
-    return '<span class="diff '+r.st+'" style="font-size:16px">'+(r.st==='ok'?'Sesuai':'Selisih '+sgn(r.diff))+'</span>';
-  }
+  map:()=>D.recounts,col:()=>'recounts-'+sid,allowNew:false,
+  stok:k=>stokHTML(k,true,true)+recWho(k),
+  pw:'perlu recount',dw:'sudah direcount',act:'Recount',
+  empty:()=>'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem).',
+  allDone:'Semua part selisih sudah direcount. Cek hasilnya di Report.'
 });
 
 /* ---------- RECOUNT: info dan penugasan H50 (depo H5A/H5B otomatis ke PIC) ---------- */
