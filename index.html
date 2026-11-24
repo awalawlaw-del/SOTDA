@@ -201,6 +201,7 @@ main{padding-bottom:40px}
   .top,main{margin-left:272px}
   #menuBtn,.scrim2{display:none!important}
 }
+input[type=date]{width:100%;min-height:46px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font-size:16px}
 </style>
 
 <div id="loading" class="center gut">
@@ -539,9 +540,9 @@ async function saveMv(add){
   await MV.save(out);
 }
 /* ---------- state ---------- */
-const D={users:new Map(),meta:new Map(),chunks:new Map(),counts:new Map(),recounts:new Map(),locs:new Map(),hist:new Map(),scopeSet:new Set(),scopeCh:new Map(),scopeFull:null,rcs:new Map(),rcsCh:new Map(),rasg:new Map(),rasgCh:new Map()};
+const D={users:new Map(),meta:new Map(),chunks:new Map(),counts:new Map(),recounts:new Map(),locs:new Map(),hist:new Map(),scopeSet:new Set(),scopeCh:new Map(),scopeFull:null,rcs:new Map(),rcsCh:new Map(),rasg:new Map(),rasgCh:new Map(),rnotes:new Map()};
 const got={users:false,meta:false,master:false,locs:false,hist:false};
-let sid=null,unCounts=null,unRec=null,unSc=null,unRcs=null,unRasg=null,M={byKey:new Map(),byPart:new Map()};
+let sid=null,unCounts=null,unRec=null,unSc=null,unRcs=null,unRasg=null,unRn=null,M={byKey:new Map(),byPart:new Map()};
 let me=null,tab='db',canWrite=null,booted=false;
 let dbLimit=60,repLimit=60,repTab='plus';
 const isAdmin=()=>me&&D.users.get(me)&&D.users.get(me).role==='admin';
@@ -628,7 +629,7 @@ function buildReport(){
   const rows=[];const seen=new Set();
   const mk=(key,p,d,sys0)=>{
     const c=D.counts.get(key),rc=D.recounts.get(key),rs=D.rcs.get(key),sys=rs?rs.q:sys0;
-    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
+    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),nt:((D.rnotes.get(key)||{}).items||[]),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
       r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
@@ -1110,7 +1111,7 @@ function LocCounter(p,C){
         return '<div class="row" data-k="'+esc(x.key)+'" style="grid-template-columns:minmax(0,1fr);'+(hl===x.key?'border-color:var(--accent);':'')+'"><div class="rm">'+pnLink(x.p)+'<div class="ds">'+(esc(x.d)||'<i>tanpa deskripsi</i>')+'</div>'+C.stok(x.key)
           +(prev?'<div class="note small">Hasil sekarang: <b>'+fmt(prev.q)+'</b>'+(prev.by?' oleh '+esc(prev.by):'')+'</div>':'')+'</div>'
           +'<div class="stepper"><button type="button" data-act="min" aria-label="Kurangi">−</button><input type="text" inputmode="decimal" placeholder="0" data-q="'+esc(x.key)+'" aria-label="Qty hasil hitung '+esc(x.p)+'" value="'+(prev&&!(x.key in keep.m)?esc(String(prev.q)):'')+'"><button type="button" data-act="plus" aria-label="Tambah">+</button></div>'
-          +'<button class="btn pri block" type="button" data-act="sub">'+act+'</button></div>';
+          +(C.noteBtn?C.noteBtn(x.key):'')+'<button class="btn pri block" type="button" data-act="sub">'+act+'</button></div>';
       }).join('')
       +(rs.length>1?'<button class="btn block" type="button" id="'+p+'All">'+act+' semua yang sudah diisi</button>':'');
     pn.querySelectorAll('[data-q]').forEach(i=>{if(i.dataset.q in keep.m)i.value=keep.m[i.dataset.q];});
@@ -1138,6 +1139,7 @@ function LocCounter(p,C){
       if(n)toast('Tersimpan '+fmt(n)+' part');
       render();return;
     }
+    const nb=e.target.closest('[data-note]');if(nb&&C.onNote){C.onNote(nb.dataset.note);return;}
     const b=e.target.closest('[data-act]');if(!b)return;
     const row=b.closest('[data-k]');if(!row)return;
     const qi=row.querySelector('[data-q]');
@@ -1208,7 +1210,8 @@ const recC=LocCounter('rec',{
     return m;
   },
   map:()=>D.recounts,col:()=>'recounts-'+sid,allowNew:false,
-  stok:k=>stokHTML(k,true,true)+recWho(k),
+  stok:k=>stokHTML(k,true,true)+recWho(k)+noteHTML(notesOf(k)),
+  noteBtn:k=>{const n=notesOf(k).length;return '<button class="btn block" type="button" data-note="'+esc(k)+'">Catatan'+(n?' ('+fmt(n)+')':'')+'</button>';},onNote:k=>noteSheet(k),
   pw:'perlu recount',dw:'sudah direcount',act:'Recount',
   empty:()=>'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem).',
   allDone:'Semua part selisih sudah direcount. Cek hasilnya di Report.'
@@ -1446,6 +1449,122 @@ $('#rcsExport').addEventListener('click',()=>{
 });
 $('#rcsWipe').onclick=()=>wipeAsk('stok recount ('+fmt(D.rcs.size)+' part)',()=>delAll('rcstock-'+sid,D.rcsCh.keys()));
 
+/* ---------- CATATAN RECOUNT: nomor delivery, quantity, nama dealer, tanggal dokumen ---------- */
+const dmy=t=>t&&/^\d{4}-\d{2}-\d{2}$/.test(t)?t.slice(8)+'/'+t.slice(5,7)+'/'+t.slice(0,4):(t||'');
+const notesOf=k=>((D.rnotes.get(k)||{}).items||[]);
+const noteTxt=x=>'DN '+(x.n||'-')+' · Qty '+(x.q===null||x.q===undefined||x.q===''?'-':fmt(x.q))+' · '+(x.d||'-')+' · '+(dmy(x.t)||'-');
+function noteHTML(nt){return nt&&nt.length?'<div class="meta">'+nt.map(x=>'<span>'+esc(noteTxt(x))+'</span>').join('')+'</div>':'';}
+function noteCols(nt){
+  if(!nt||!nt.length)return ['','','',''];
+  const j=f=>nt.map(f).filter(v=>v!=='').join(' | ');
+  return [j(x=>x.n||''),nt.length===1&&nt[0].q!==null&&nt[0].q!==undefined&&nt[0].q!==''?nt[0].q:j(x=>x.q===null||x.q===undefined?'':String(x.q)),j(x=>x.d||''),j(x=>dmy(x.t)||'')];
+}
+async function saveNotes(k,items){
+  const col='recnote-'+sid;
+  if(items.length)await store.set(col,k,{items:items});else await store.del(col,k);
+}
+/* tempel dari Excel: baca TSV (sel multi-baris dalam tanda kutip) lalu pecah jadi satu catatan per delivery */
+function tsvParse(t){
+  const rows=[];let row=[],f='',q=false;
+  for(let i=0;i<t.length;i++){
+    const c=t[i];
+    if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++;}else q=false;}else f+=c;}
+    else if(c==='"'&&f==='')q=true;
+    else if(c==='\t'){row.push(f);f='';}
+    else if(c==='\n'||c==='\r'){if(c==='\r'&&t[i+1]==='\n')i++;row.push(f);rows.push(row);row=[];f='';}
+    else f+=c;
+  }
+  if(f!==''||row.length){row.push(f);rows.push(row);}
+  return rows;
+}
+const cleanLead=v=>String(v==null?'':v).replace(/^[\s\-–—•*]+/,'').trim();
+function parseNotePaste(text){
+  const rows=tsvParse(String(text||'').replace(/ /g,' ')),out=[];
+  rows.forEach(r=>{
+    if(!r.some(c=>String(c).trim()!==''))return;
+    if(/keterangan|delivery|nomor|^\s*dn\s*$/i.test(String(r[0]||''))&&/qty|quantity|jumlah/i.test(String(r[1]||'')))return;
+    const cols=[0,1,2,3].map(i=>String(r[i]==null?'':r[i]).split(/\r?\n/).map(x=>x.trim()).filter(x=>x!==''));
+    const n=Math.max(1,...cols.map(c=>c.length));
+    for(let i=0;i<n;i++){
+      const g=c=>c.length===0?'':(c.length===1&&n>1?c[0]:(c[i]||''));
+      let dn=cleanLead(g(cols[0])),qv=cleanLead(g(cols[1])),dl=cleanLead(g(cols[2])),dt=cleanLead(g(cols[3]));
+      const pm=dn.match(/\s*\((\d+(?:[.,]\d+)?)\)\s*$/);
+      if(pm){dn=dn.slice(0,pm.index).trim();if(qv==='')qv=pm[1];}
+      let q=null,t='',bad=false;
+      if(qv!==''){q=parseQty(qv);if(q===null)bad=true;}
+      if(dt!==''){t=/^\d{5}$/.test(dt)?ymd(Number(dt)):ymd(dt);if(!t){t='';bad=true;}}
+      if(!dn&&q===null&&!dl&&!t&&!bad)continue;
+      out.push({n:dn.toUpperCase(),q:q,d:dl,t:t,bad:bad});
+    }
+  });
+  return out;
+}
+function notePrevHTML(items){
+  if(!items.length)return '';
+  return '<div class="small muted">'+fmt(items.length)+' catatan terbaca:</div><table class="tr"><tr><th>No Delivery</th><th>Qty</th><th>Dealer</th><th>Tgl Dok</th></tr>'
+    +items.map(x=>'<tr><td>'+esc(x.n||'-')+'</td><td>'+(x.q===null?'-':fmt(x.q))+'</td><td>'+esc(x.d||'-')+'</td><td'+(x.bad?' style="color:var(--minus)"':'')+'>'+esc(dmy(x.t)||(x.bad?'?':'-'))+'</td></tr>').join('')+'</table>'
+    +(items.some(x=>x.bad)?'<div class="note small">Tanda ? = tanggal atau qty tidak terbaca. Catatan tetap disimpan tanpa nilai itu, bisa dihapus lalu diinput ulang.</div>':'');
+}
+function noteSheet(k){
+  const r=buildReport().find(x=>x.key===k)||{};
+  let cur=notesOf(k).slice(),pp=[];
+  const s=openSheet('');
+  const draw=()=>{
+    s.innerHTML='<h2>Catatan recount</h2><div class="mono">'+esc(r.p||k)+'</div><div class="small muted">'+(esc(r.d)||'')+(r.l?' · Lokasi '+esc(r.l):'')+'</div>'
+     +(cur.length?'<div class="list">'+cur.map((x,i)=>'<div class="row"><div class="rm"><b>DN '+esc(x.n||'-')+'</b><div class="meta"><span>Qty '+(x.q===null||x.q===undefined||x.q===''?'-':fmt(x.q))+'</span><span>'+esc(x.d||'-')+'</span><span>Tgl '+esc(dmy(x.t)||'-')+'</span>'+(x.by?'<span>oleh '+esc(x.by)+'</span>':'')+'</div></div><button class="btn sm dan" type="button" data-nd="'+i+'">Hapus</button></div>').join('')+'</div>':'<div class="note small">Belum ada catatan untuk part ini.</div>')
+     +'<h3 style="font-size:18px">Tempel dari Excel (banyak sekaligus)</h3>'
+     +'<div class="small muted">Copy tabel dari Excel dengan urutan kolom: Keterangan (no delivery), Qty, Dealer, Tgl Dok. Baris judul boleh ikut. Sel yang isinya beberapa baris (beberapa delivery dalam satu sel) otomatis dipisah jadi catatan sendiri-sendiri. Tanda "-" di depan dan "(40)" di belakang nomor dibersihkan otomatis.</div>'
+     +'<textarea id="cnPaste" rows="5" placeholder="Tempel di sini (Ctrl+V)" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" style="width:100%;min-height:110px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:16px"></textarea>'
+     +'<div id="cnPrev"></div><div id="cnPErr" class="err" role="alert"></div><button id="cnPAdd" class="btn pri block" type="button" disabled>Tambahkan semua</button>'
+     +'<h3 style="font-size:18px">Atau tambah satu per satu</h3>'
+     +'<label class="f">Nomor delivery<input id="cnN" type="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label>'
+     +'<label class="f">Quantity<input id="cnQ" type="text" inputmode="decimal" placeholder="0"></label>'
+     +'<label class="f">Nama dealer<input id="cnD" type="text" autocomplete="off"></label>'
+     +'<label class="f">Tanggal dokumen<input id="cnT" type="date"></label>'
+     +'<div id="cnErr" class="err" role="alert"></div><button id="cnAdd" class="btn pri block" type="button">Tambah catatan</button><button id="cnX" class="btn block" type="button">Tutup</button>';
+  };
+  draw();
+  s.addEventListener('input',e=>{
+    if(e.target.id!=='cnPaste')return;
+    pp=parseNotePaste(e.target.value);
+    $('#cnPrev',s).innerHTML=notePrevHTML(pp);
+    $('#cnPErr',s).textContent=e.target.value.trim()&&!pp.length?'Tidak ada data yang terbaca. Pastikan hasil copy dari Excel (kolom dipisah tab).':'';
+    $('#cnPAdd',s).disabled=!pp.length;
+    $('#cnPAdd',s).textContent=pp.length?'Tambahkan semua ('+fmt(pp.length)+')':'Tambahkan semua';
+  });
+  s.addEventListener('click',async e=>{
+    if(e.target.closest('#cnX')){closeSheet();return;}
+    if(e.target.closest('#cnPAdd')){
+      if(!pp.length)return;
+      const kf=x=>[x.n,x.q===null?'':x.q,x.d,x.t].join('|'),have=new Set(cur.map(kf));
+      const by=userName(),now=Date.now(),add=[];
+      pp.forEach(x=>{if(!have.has(kf(x))){have.add(kf(x));add.push({n:x.n,q:x.q,d:x.d,t:x.t,by:by,at:now});}});
+      if(!add.length){$('#cnPErr',s).textContent='Semua catatan ini sudah ada, tidak ada yang ditambahkan.';return;}
+      const skipped=pp.length-add.length,next=cur.concat(add);
+      $('#cnPAdd',s).disabled=true;
+      if(await safe(()=>saveNotes(k,next))){cur=next;pp=[];draw();toast(fmt(add.length)+' catatan ditambahkan'+(skipped?', '+fmt(skipped)+' dilewati karena sudah ada':''));}
+      else{const b=$('#cnPAdd',s);if(b)b.disabled=false;}
+      return;
+    }
+    const del=e.target.closest('[data-nd]');
+    if(del){
+      const i=+del.dataset.nd,x=cur[i];if(!x)return;
+      if(!isAdmin()&&x.by!==userName()){toast('Hanya admin atau pembuat catatan yang bisa menghapus.');return;}
+      const next=cur.filter((_,j)=>j!==i);
+      if(await safe(()=>saveNotes(k,next))){cur=next;draw();}
+      return;
+    }
+    if(e.target.closest('#cnAdd')){
+      const n=$('#cnN',s).value.trim(),qv=$('#cnQ',s).value.trim(),d=$('#cnD',s).value.trim(),t=$('#cnT',s).value,err=$('#cnErr',s);err.textContent='';
+      if(!n&&!qv&&!d&&!t){err.textContent='Isi minimal satu kolom.';return;}
+      const q=qv===''?null:parseQty(qv);
+      if(qv!==''&&q===null){err.textContent='Quantity harus berupa angka.';return;}
+      const next=cur.concat([{n:n.toUpperCase(),q:q,d:d,t:t||'',by:userName(),at:Date.now()}]);
+      if(await safe(()=>saveNotes(k,next))){cur=next;draw();toast('Catatan ditambahkan');}
+    }
+  });
+}
+
 /* ---------- REPORT ---------- */
 const repPn=a=>D.users.has(a)?uName(a):'';
 const fmtFull=t=>{try{return new Date(t).toLocaleString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}};
@@ -1453,7 +1572,7 @@ function repRowHTML(r,pn){
   const pic=r.a?pn(r.a):'';
   const meta=(r.l||pic||r.cb||r.su)?'<div class="meta">'+(r.w?'<span>WH '+esc(r.w)+'</span>':'')+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+(r.su?'<span>Stok awal '+fmt(r.s0)+' → stok recount '+fmt(r.sys)+'</span>':'')+'</div>':'';
   const v=x=>x===null||x===undefined?'-':fmt(x);
-  return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta
+  return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta+noteHTML(r.nt)
     +'<div class="grid4"><span>Stok<b>'+fmt(r.sys)+'</b></span><span>Hitung 1<b>'+v(r.c1)+'</b></span><span>Recount<b>'+v(r.rec)+'</b></span><span>Akhir<b>'+v(r.fin)+'</b></span></div>'+((r.st==='plus'||r.st==='minus')?'<button class="btn sm trb" type="button" data-trace="'+encodeURIComponent(r.p)+'">Telusuri selisih</button>':'')+'</div>'
     +'<div class="dcol"><small>Selisih</small><span class="diff '+r.st+'">'+(r.st==='pending'?'Belum':r.st==='ok'?'0':sgn(r.diff))+'</span></div></div>';
 }
@@ -1515,10 +1634,10 @@ $('#repQ').addEventListener('input',()=>{repLimit=60;renderRep();});
 $('#repList').addEventListener('click',e=>{if(e.target.closest('#repMore')){repLimit+=60;renderRep();}});
 function reportWB(rows,pn,titleRows){
   const g=splitGroups(rows),S=summarize(rows);
-  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh','Qty Stok Awal'];
+  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh','Qty Stok Awal','No Delivery','Qty Delivery','Nama Dealer','Tgl Dokumen'];
   const cell=x=>x===null||x===undefined?'':x;
-  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'',r.su?r.s0:'']);
-  const W=[24,44,14,10,10,12,10,8,14,18,18,18,14];
+  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'',r.su?r.s0:''].concat(noteCols(r.nt)));
+  const W=[24,44,14,10,10,12,10,8,14,18,18,18,14,18,12,22,14];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,sheetOf(titleRows.concat([[],
     ['Total part',S.tot],['Sudah dihitung',S.done],['Belum dihitung',S.pend],
@@ -1527,6 +1646,8 @@ function reportWB(rows,pn,titleRows){
   [['plus','Selisih Plus'],['minus','Selisih Minus'],['ok','Sesuai'],['pending','Belum Dihitung']].forEach(x=>{
     XLSX.utils.book_append_sheet(wb,sheetOf([head].concat(body(sortGroup(g[x[0]].slice(),x[0]))),W),x[1]);
   });
+  const nrows=[];rows.forEach(r=>(r.nt||[]).forEach(x=>nrows.push([r.p,r.d,r.w||'',r.l||'',r.sys,cell(r.fin),cell(r.diff),x.n||'',cell(x.q),x.d||'',dmy(x.t)||'',x.by||''])));
+  if(nrows.length)XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Deskripsi','WH','Lokasi','Qty Stok Sistem','Hitung Akhir','Selisih','No Delivery','Qty Delivery','Nama Dealer','Tgl Dokumen','Dicatat oleh']].concat(nrows),[24,44,8,14,14,12,10,18,12,22,14,18]),'Catatan Recount');
   const gh=['Nama','Total part','Dihitung','Part plus','Part minus','Sesuai','Qty plus','Qty minus'];
   const gb=a=>a.map(x=>[x.n,x.tot,x.done,x.plus,x.minus,x.ok,round(x.sp),round(x.sm)]);
   XLSX.utils.book_append_sheet(wb,sheetOf([gh].concat(gb(groupBy(rows,r=>(r.a&&pn(r.a))||'Belum ditugaskan'))),[24,10,10,10,10,10,10,10]),'Per PIC');
@@ -1542,10 +1663,10 @@ $('#repExport').addEventListener('click',()=>{
 /* ---------- RIWAYAT STO ---------- */
 let hisDay='',hisSel=null,hisRows=null,hisUn=null,hisIds=[],hisTab='plus',hisLimit=60;
 const HTABS=[['plus','Selisih plus'],['minus','Selisih minus'],['ok','Sesuai'],['pending','Belum dihitung'],['pic','Per PIC'],['loc','Per lokasi']];
-const hRow=o=>({p:o.p,d:o.d||'',sys:o.s,c1:o.c,rec:o.r,fin:o.f,diff:o.x,l:o.l||'',a:o.a||'',cb:o.b||'',rb:o.e||'',ca:o.w||0,st:o.x===null?'pending':o.x>0?'plus':o.x<0?'minus':'ok'});
+const hRow=o=>({p:o.p,d:o.d||'',sys:o.s,c1:o.c,rec:o.r,fin:o.f,diff:o.x,l:o.l||'',a:o.a||'',cb:o.b||'',rb:o.e||'',ca:o.w||0,nt:(o.n||[]).map(a=>({n:a[0],q:a[1],d:a[2],t:a[3]})),st:o.x===null?'pending':o.x>0?'plus':o.x<0?'minus':'ok'});
 async function saveSnapshot(name,startAt,rep,S){
   const old=sid,pics={};D.users.forEach((v,k)=>{pics[k]=v.name||k;});
-  const items=rep.map(r=>({p:r.p,d:r.d||'',s:r.sys,c:r.c1,r:r.rec,f:r.fin,x:r.diff,l:r.l||'',a:r.a||'',b:r.cb||'',e:r.rb||'',w:r.ca||0}));
+  const items=rep.map(r=>({p:r.p,d:r.d||'',s:r.sys,c:r.c1,r:r.rec,f:r.fin,x:r.diff,l:r.l||'',a:r.a||'',b:r.cb||'',e:r.rb||'',w:r.ca||0,n:(r.nt||[]).map(x=>[x.n||'',x.q===undefined?null:x.q,x.d||'',x.t||''])}));
   const n=Math.ceil(items.length/250);
   for(let i=0;i<n;i++)await store.set('hr-'+old,'c'+String(i).padStart(4,'0'),{items:items.slice(i*250,(i+1)*250)});
   await store.set('hist',old,Object.assign({sid:old,name:name,at:Date.now(),start:startAt||0,by:userName(),pics:pics},S));
@@ -2279,12 +2400,13 @@ async function boot(){
     D.meta=m;if(!fc)got.meta=true;
     const s=(m.get('state')||{}).sid||'main';
     if(s!==sid){
-      sid=s;if(unCounts)unCounts();if(unRec)unRec();if(unSc)unSc();if(unRcs)unRcs();if(unRasg)unRasg();D.counts=new Map();D.recounts=new Map();D.scopeSet=new Set();D.scopeCh=new Map();D.scopeFull=null;D.rcs=new Map();D.rcsCh=new Map();D.rasg=new Map();D.rasgCh=new Map();
+      sid=s;if(unCounts)unCounts();if(unRec)unRec();if(unSc)unSc();if(unRcs)unRcs();if(unRasg)unRasg();if(unRn)unRn();D.counts=new Map();D.recounts=new Map();D.scopeSet=new Set();D.scopeCh=new Map();D.scopeFull=null;D.rcs=new Map();D.rcsCh=new Map();D.rasg=new Map();D.rasgCh=new Map();D.rnotes=new Map();
       unCounts=store.listen('counts-'+sid,cm=>{D.counts=cm;onData();},bad);
       unRec=store.listen('recounts-'+sid,cm=>{D.recounts=cm;onData();},bad);
       unSc=store.listen('scope-'+sid,cm=>{D.scopeCh=cm;const st=new Set(),fl=new Set();cm.forEach(v=>{(v.k||[]).forEach(k=>st.add(k));(v.f||[]).forEach(k=>fl.add(k));});D.scopeSet=st;D.scopeFull=fl.size?fl:null;onData();},bad);
       unRcs=store.listen('rcstock-'+sid,cm=>{D.rcsCh=cm;const m=new Map();Array.from(cm.keys()).sort().forEach(id=>((cm.get(id)||{}).items||[]).forEach(o=>m.set(o.k,o)));D.rcs=m;onData();},bad);
       unRasg=store.listen('recasg-'+sid,cm=>{D.rasgCh=cm;const m=new Map();cm.forEach(v=>(v.k||[]).forEach(k=>m.set(k,v.u)));D.rasg=m;onData();},bad);
+      unRn=store.listen('recnote-'+sid,cm=>{D.rnotes=cm;onData();},bad);
     }
     onData();
   },bad);
