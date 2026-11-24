@@ -1502,10 +1502,32 @@ function parseNotePaste(text){
   });
   return out;
 }
+/* input per bagian: satu kotak untuk tiap kolom, baris ke-N di semua kotak = satu delivery yang sama */
+function parseNoteLines(v){
+  const L=x=>{const a=String(x||'').replace(/ /g,' ').split(/\r?\n/).map(s=>s.trim().replace(/^"+|"+$/g,'').trim());while(a.length&&a[a.length-1]==='')a.pop();return a;};
+  const cols=[L(v.n),L(v.q),L(v.d),L(v.t)],nm=['Nomor delivery','Qty','Dealer','Tanggal'];
+  const n=Math.max(0,...cols.map(c=>c.length));
+  if(!n)return {items:[],err:''};
+  let err='';
+  if(cols.some(c=>c.length>1&&c.length!==n))err='Jumlah baris tidak sama ('+cols.map((c,i)=>nm[i]+' '+c.length).join(', ')+'). Samakan dulu supaya tidak tertukar. Kotak yang isinya 1 baris dipakai untuk semua delivery.';
+  const items=[];
+  for(let i=0;i<n;i++){
+    const g=c=>c.length===0?'':(c.length===1&&n>1?c[0]:(c[i]||''));
+    let dn=cleanLead(g(cols[0])),qv=cleanLead(g(cols[1])),dl=cleanLead(g(cols[2])),dt=cleanLead(g(cols[3]));
+    const pm=dn.match(/\s*\((\d+(?:[.,]\d+)?)\)\s*$/);
+    if(pm){dn=dn.slice(0,pm.index).trim();if(qv==='')qv=pm[1];}
+    let q=null,t='',bad=false;
+    if(qv!==''){q=parseQty(qv);if(q===null)bad=true;}
+    if(dt!==''){t=/^\d{5}$/.test(dt)?ymd(Number(dt)):ymd(dt);if(!t){t='';bad=true;}}
+    if(!dn&&q===null&&!dl&&!t&&!bad)continue;
+    items.push({n:dn.toUpperCase(),q:q,d:dl,t:t,bad:bad});
+  }
+  return {items:items,err:err};
+}
 function notePrevHTML(items){
   if(!items.length)return '';
-  return '<div class="small muted">'+fmt(items.length)+' catatan terbaca:</div><table class="tr"><tr><th>No Delivery</th><th>Qty</th><th>Dealer</th><th>Tgl Dok</th></tr>'
-    +items.map(x=>'<tr><td>'+esc(x.n||'-')+'</td><td>'+(x.q===null?'-':fmt(x.q))+'</td><td>'+esc(x.d||'-')+'</td><td'+(x.bad?' style="color:var(--minus)"':'')+'>'+esc(dmy(x.t)||(x.bad?'?':'-'))+'</td></tr>').join('')+'</table>'
+  return '<div class="small muted">'+fmt(items.length)+' catatan terbaca (urutan baris sama dengan yang kamu input):</div><table class="tr"><tr><th>#</th><th>No Delivery</th><th>Qty</th><th>Dealer</th><th>Tgl Dok</th></tr>'
+    +items.map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(x.n||'-')+'</td><td>'+(x.q===null?'-':fmt(x.q))+'</td><td>'+esc(x.d||'-')+'</td><td'+(x.bad?' style="color:var(--minus)"':'')+'>'+esc(dmy(x.t)||(x.bad?'?':'-'))+'</td></tr>').join('')+'</table>'
     +(items.some(x=>x.bad)?'<div class="note small">Tanda ? = tanggal atau qty tidak terbaca. Catatan tetap disimpan tanpa nilai itu, bisa dihapus lalu diinput ulang.</div>':'');
 }
 function noteSheet(k){
@@ -1515,9 +1537,9 @@ function noteSheet(k){
   const draw=()=>{
     s.innerHTML='<h2>Catatan recount</h2><div class="mono">'+esc(r.p||k)+'</div><div class="small muted">'+(esc(r.d)||'')+(r.l?' · Lokasi '+esc(r.l):'')+'</div>'
      +(cur.length?'<div class="list">'+cur.map((x,i)=>'<div class="row"><div class="rm"><b>DN '+esc(x.n||'-')+'</b><div class="meta"><span>Qty '+(x.q===null||x.q===undefined||x.q===''?'-':fmt(x.q))+'</span><span>'+esc(x.d||'-')+'</span><span>Tgl '+esc(dmy(x.t)||'-')+'</span>'+(x.by?'<span>oleh '+esc(x.by)+'</span>':'')+'</div></div><button class="btn sm dan" type="button" data-nd="'+i+'">Hapus</button></div>').join('')+'</div>':'<div class="note small">Belum ada catatan untuk part ini.</div>')
-     +'<h3 style="font-size:18px">Tempel dari Excel (banyak sekaligus)</h3>'
-     +'<div class="small muted">Copy tabel dari Excel dengan urutan kolom: Keterangan (no delivery), Qty, Dealer, Tgl Dok. Baris judul boleh ikut. Sel yang isinya beberapa baris (beberapa delivery dalam satu sel) otomatis dipisah jadi catatan sendiri-sendiri. Tanda "-" di depan dan "(40)" di belakang nomor dibersihkan otomatis.</div>'
-     +'<textarea id="cnPaste" rows="5" placeholder="Tempel di sini (Ctrl+V)" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" style="width:100%;min-height:110px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:16px"></textarea>'
+     +'<h3 style="font-size:18px">Input banyak delivery sekaligus</h3>'
+     +'<div class="small muted">Isi tiap kotak, satu delivery per baris (tempel dari Excel atau ketik, tekan Enter untuk baris baru). Baris pertama di kotak Nomor delivery berpasangan dengan baris pertama di kotak Qty, Dealer, dan Tanggal, begitu seterusnya. Kotak yang cuma diisi 1 baris dipakai untuk semua delivery (misal dealer atau tanggal yang sama).</div>'
+     +[['N','Nomor delivery','3047478171\n3047480527\n3051582457'],['Q','Qty','30\n35\n7'],['D','Nama dealer','CAHAYA AGUNG MOTOR\nPT NUSANTARA SURYA SAKTI\nHSO-H764 Unaaha'],['T','Tanggal dokumen','19.11.2026\n20.11.2026\n19.11.2026']].map(a=>'<label class="f">'+a[1]+' (satu per baris)<textarea id="cnP'+a[0]+'" data-np="1" rows="3" placeholder="'+esc(a[2])+'" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;min-height:84px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:16px;white-space:pre"></textarea></label>').join('')
      +'<div id="cnPrev"></div><div id="cnPErr" class="err" role="alert"></div><button id="cnPAdd" class="btn pri block" type="button" disabled>Tambahkan semua</button>'
      +'<h3 style="font-size:18px">Atau tambah satu per satu</h3>'
      +'<label class="f">Nomor delivery<input id="cnN" type="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label>'
@@ -1528,10 +1550,11 @@ function noteSheet(k){
   };
   draw();
   s.addEventListener('input',e=>{
-    if(e.target.id!=='cnPaste')return;
-    pp=parseNotePaste(e.target.value);
-    $('#cnPrev',s).innerHTML=notePrevHTML(pp);
-    $('#cnPErr',s).textContent=e.target.value.trim()&&!pp.length?'Tidak ada data yang terbaca. Pastikan hasil copy dari Excel (kolom dipisah tab).':'';
+    if(!e.target.dataset||!e.target.dataset.np)return;
+    const R=parseNoteLines({n:$('#cnPN',s).value,q:$('#cnPQ',s).value,d:$('#cnPD',s).value,t:$('#cnPT',s).value});
+    pp=R.err?[]:R.items;
+    $('#cnPrev',s).innerHTML=notePrevHTML(R.items);
+    $('#cnPErr',s).textContent=R.err;
     $('#cnPAdd',s).disabled=!pp.length;
     $('#cnPAdd',s).textContent=pp.length?'Tambahkan semua ('+fmt(pp.length)+')':'Tambahkan semua';
   });
