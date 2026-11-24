@@ -324,6 +324,22 @@ main{padding-bottom:40px}
     <!-- HITUNG -->
     <section id="v-hit" class="view" hidden></section>
 
+    <!-- STOK RECOUNT -->
+    <section id="v-rcs" class="view" hidden>
+      <div class="panel"><h2 style="font-size:24px">Stok Recount</h2><div class="small muted">Upload stok terbaru khusus untuk Recount. Menu Recount memakai qty dari sini sebagai stok sistem, bukan dari Database Stock. Part yang hitungan pertamanya sama dengan stok ini otomatis hilang dari Recount dan langsung masuk Sesuai. Data ini hanya berlaku untuk opname yang sedang berjalan.</div></div>
+      <div class="tiles" id="rcsTiles"></div>
+      <div class="tools">
+        <label class="btn pri" for="rcsIn"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload stok recount</label>
+        <input id="rcsIn" type="file" accept=".xlsx,.xls,.csv" hidden>
+        <button id="rcsTpl" class="btn" type="button">Template</button>
+        <button id="rcsExport" class="btn" type="button">Ekspor</button>
+        <button id="rcsWipe" class="btn dan" type="button" hidden>Hapus stok recount</button>
+      </div>
+      <div id="rcsPanel" class="panel" hidden></div>
+      <input id="rcsQ" type="search" placeholder="Cari part number, deskripsi, atau lokasi" aria-label="Cari stok recount">
+      <div id="rcsList" class="list"></div>
+    </section>
+
     <!-- RECOUNT -->
     <section id="v-rec" class="view" hidden></section>
 
@@ -332,7 +348,7 @@ main{padding-bottom:40px}
       <div class="tiles" id="repTiles"></div>
       <button id="repWipe" class="btn dan block" type="button" hidden>Hapus semua data</button>
       <div id="repScope" class="note small" hidden></div>
-      <div class="note small">Selisih = qty hitung fisik − qty stok sistem. Bila sudah di-recount, hasil recount dipakai sebagai hitung fisik. Part yang belum dihitung tidak masuk selisih.</div>
+      <div class="note small">Selisih = qty hitung fisik − qty stok sistem. Bila sudah di-recount, hasil recount dipakai sebagai hitung fisik. Part yang belum dihitung tidak masuk selisih. Bila part ada di menu Stok Recount, qty dari sana dipakai sebagai qty stok sistem.</div>
       <button id="repExport" class="btn pri block" type="button"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>Ekspor ke Excel</button>
       <div class="seg" id="repTabs" role="group" aria-label="Kelompok laporan"></div>
       <input id="repQ" type="search" placeholder="Cari di laporan" aria-label="Cari di laporan">
@@ -348,6 +364,7 @@ main{padding-bottom:40px}
     <button class="tab" data-t="sto" data-admin><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4"/></svg>MENU STO MOVE</button>
     <button class="tab" data-t="lok" data-admin><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><path d="M9 10h6M12 7v6"/></svg>MENU STO LOKASI</button>
     <button class="tab" data-t="hit"><svg viewBox="0 0 24 24"><path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M8 12l3 3 5-6"/></svg>Hitung</button>
+    <button class="tab" data-t="rcs" data-admin><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Stok Recount</button>
     <button class="tab" data-t="rec"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg>Recount</button>
     <button class="tab" data-t="rep"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Report</button>
     <button class="tab" data-t="his"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2"/></svg>Riwayat</button>
@@ -522,9 +539,9 @@ async function saveMv(add){
   await MV.save(out);
 }
 /* ---------- state ---------- */
-const D={users:new Map(),meta:new Map(),chunks:new Map(),counts:new Map(),recounts:new Map(),locs:new Map(),hist:new Map(),scopeSet:new Set(),scopeCh:new Map()};
+const D={users:new Map(),meta:new Map(),chunks:new Map(),counts:new Map(),recounts:new Map(),locs:new Map(),hist:new Map(),scopeSet:new Set(),scopeCh:new Map(),scopeFull:null,rcs:new Map(),rcsCh:new Map(),rasg:new Map(),rasgCh:new Map()};
 const got={users:false,meta:false,master:false,locs:false,hist:false};
-let sid=null,unCounts=null,unRec=null,unSc=null,M={byKey:new Map(),byPart:new Map()};
+let sid=null,unCounts=null,unRec=null,unSc=null,unRcs=null,unRasg=null,M={byKey:new Map(),byPart:new Map()};
 let me=null,tab='db',canWrite=null,booted=false;
 let dbLimit=60,repLimit=60,repTab='plus';
 const isAdmin=()=>me&&D.users.get(me)&&D.users.get(me).role==='admin';
@@ -546,6 +563,14 @@ const DEPOT_WH=['H5A','H5B'];
 const isDepot=w=>DEPOT_WH.indexOf(norm(w))>=0;
 const own=x=>(x.w&&isDepot(x.w)&&picOf(x.w))||picOf(x.l)||((x.a&&D.users.has(x.a))?x.a:'');
 const hasOwner=x=>!!own(x);
+/* Recount: depo H5A dan H5B otomatis ke PIC-nya; selain itu (H50) dipilih manual admin lewat Tugaskan recount */
+const recOwner=(k,x)=>isDepot(x.w)?own(x):(D.rasg.get(k)?resolvePic(D.rasg.get(k)):'');
+function recPass(x,k){
+  if(!inScope(k))return false;
+  const o=recOwner(k,x);
+  if(!isAdmin())return o===me;
+  const f=whoF.rec;if(f==='all')return true;if(f==='__none')return !o;return o===f;
+}
 /* mode: loc = ikut PIC lokasi (bila lokasi belum punya PIC, penugasan lama dibiarkan), one = satu orang, keep = tidak diubah */
 function asg(mode,who,l,ex){
   if(mode==='one')return who||'';
@@ -568,7 +593,7 @@ function scopeMode(){return scopeKind()!=='full';}
 function inScope(k){return !scopeMode()||D.scopeSet.has(k);}
 function scopeBanner(){
   const on=scopeMode();
-  const sk=scopeKind(),nl=((D.meta.get('state')||{}).scopeLocs||[]).length;const t=!on?'':sk==='loc'?'<b>STO LOKASI</b> ('+(((D.meta.get('state')||{}).whCfg)?whDesc():fmt(nl)+' lokasi')+'; '+fmt(D.scopeSet.size)+' part). Part di lokasi lain tidak ikut dihitung dan tidak masuk laporan.':'<b>MENU STO MOVE: hanya barang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.';
+  const sk=scopeKind(),nl=((D.meta.get('state')||{}).scopeLocs||[]).length;const t=!on?'':sk==='loc'?'<b>STO LOKASI</b> ('+(((D.meta.get('state')||{}).whCfg)?whDesc():fmt(nl)+' lokasi')+'; '+fmt(D.scopeSet.size)+' part). Part di lokasi lain tidak ikut dihitung dan tidak masuk laporan.':'<b>MENU STO MOVE: hanya barang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.'+pctDesc();
   ['dbScope','repScope'].forEach(i=>{const e=$('#'+i);e.hidden=!on;e.innerHTML=t;});
 }
 function passWho(v,p){
@@ -601,9 +626,9 @@ async function saveMaster(list){
 /* satu baris laporan per part. Hitung akhir = recount bila ada, kalau tidak hitungan pertama. Selisih = hitung akhir - stok sistem */
 function buildReport(){
   const rows=[];const seen=new Set();
-  const mk=(key,p,d,sys)=>{
-    const c=D.counts.get(key),rc=D.recounts.get(key);
-    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
+  const mk=(key,p,d,sys0)=>{
+    const c=D.counts.get(key),rc=D.recounts.get(key),rs=D.rcs.get(key),sys=rs?rs.q:sys0;
+    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
       r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
@@ -686,7 +711,7 @@ function enter(){
 function go(t){
   tab=t;
   $$('.tab').forEach(b=>b.setAttribute('aria-current',b.dataset.t===t?'page':'false'));
-  ['db','loc','mvl','sto','lok','his','hit','rec','rep'].forEach(x=>{$('#v-'+x).hidden=x!==t;});
+  ['db','loc','mvl','sto','lok','his','hit','rcs','rec','rep'].forEach(x=>{$('#v-'+x).hidden=x!==t;});
   renderActive();window.scrollTo(0,0);
 }
 $$('.tab').forEach(b=>b.addEventListener('click',()=>go(b.dataset.t)));
@@ -694,8 +719,8 @@ let rq=null;
 function scheduleRender(){if(rq)return;rq=requestAnimationFrame(()=>{rq=null;if(me&&!$('#shell').hidden)renderActive();});}
 function renderActive(){
   $('#userBtn').textContent=userName();
-  $$('.tab[data-admin]').forEach(b=>{b.hidden=!isAdmin();});$('#locBtn').hidden=!isAdmin();$('#asgBtn').hidden=!isAdmin();$('#scopeBtn').hidden=!isAdmin();scopeBanner();['dbWipe','mvBtn','hitWipe','recWipe','repWipe'].forEach(i=>{const e=$('#'+i);if(e)e.hidden=!isAdmin();});const xl=document.querySelector('label[for=xlsIn]');if(xl)xl.hidden=!isAdmin();
-  ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,lok:renderLok,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();},rep:renderRep})[tab]();
+  $$('.tab[data-admin]').forEach(b=>{b.hidden=!isAdmin();});$('#locBtn').hidden=!isAdmin();$('#asgBtn').hidden=!isAdmin();$('#scopeBtn').hidden=!isAdmin();scopeBanner();['dbWipe','mvBtn','hitWipe','recWipe','repWipe','recAsg','rcsWipe'].forEach(i=>{const e=$('#'+i);if(e)e.hidden=!isAdmin();});const xl=document.querySelector('label[for=xlsIn]');if(xl)xl.hidden=!isAdmin();
+  ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,lok:renderLok,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();renderRecInfo();},rcs:renderRcs,rep:renderRep})[tab]();
 }
 
 /* ---------- DATABASE ---------- */
@@ -913,9 +938,10 @@ function counterHTML(p,title,ph,extra){
    +'<input id="'+p+'Cam" type="file" accept="image/*" capture="environment" hidden></form>'
    +'<div id="'+p+'Panel" class="panel pcard" hidden></div><div id="'+p+'Head" class="small muted"></div><div id="'+p+'List" class="list"></div>';
 }
-const stokHTML=(k,withC)=>{
-  const it=M.byKey.get(k),c=D.counts.get(k);
-  return '<div class="grid4" style="margin-top:8px"><span>Stok sistem<b>'+(it?fmt(it.q):'-')+'</b></span>'+(withC?'<span>Hitungan 1<b>'+(c?fmt(c.q):'-')+'</b></span>':'')+'</div>';
+const stokHTML=(k,withC,rc)=>{
+  const it=M.byKey.get(k),c=D.counts.get(k),r=rc?D.rcs.get(k):null;
+  const sys=r?r.q:(it?it.q:null);
+  return '<div class="grid4" style="margin-top:8px"><span>'+(r?'Stok recount':'Stok sistem')+'<b>'+(sys!==null?fmt(sys):'-')+'</b></span>'+(r&&it&&round(r.q)!==round(it.q)?'<span>Stok awal<b>'+fmt(it.q)+'</b></span>':'')+(withC?'<span>Hitungan 1<b>'+(c?fmt(c.q):'-')+'</b></span>':'')+'</div>';
 };
 function locLine(k){const it0=M.byKey.get(k)||{},l=it0.l,w=it0.w;return l?'<div style="margin-top:6px;font-size:17px;font-weight:600">'+(w?'WH <span class="mono">'+esc(w)+'</span> · ':'')+'Lokasi: <span class="mono">'+esc(l)+'</span></div>':'<div class="meta"><span class="badge pick">Tanpa lokasi</span></div>';}
 function Counter(p,cfg){
@@ -1016,7 +1042,7 @@ $('#v-hit').innerHTML=counterHTML('hit','Progres hitung','Scan lokasi atau part 
   '<div class="note small">Hitung per lokasi: pilih lokasi, semua part di lokasi itu muncul. Submit tiap part setelah dihitung, part yang sudah disubmit hilang dari daftar.</div>'
   +'<div class="seg" id="hitSeg" role="group" aria-label="Daftar hitung"><button type="button" data-m="pending" aria-pressed="true">Belum dihitung</button><button type="button" data-m="done" aria-pressed="false">Sudah dihitung</button></div>');
 $('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan atau ketik part selisih',
-  '<div class="note small">Daftar ini hanya berisi part yang hitungan pertamanya selisih. Hasil recount menggantikan hitungan pertama di Report.</div>'
+  '<div class="note small">Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button>'
   +'<div class="seg" id="recSeg" role="group" aria-label="Daftar recount"><button type="button" data-m="pending" aria-pressed="true">Perlu recount</button><button type="button" data-m="done" aria-pressed="false">Sudah recount</button></div>');
 
 /* ---------- Hitung per LOKASI: pilih lokasi, semua part di lokasi itu muncul, submit per part, yang sudah submit hilang dari list ---------- */
@@ -1172,16 +1198,17 @@ const recC=Counter('rec',{
   scope:()=>{
     const m=new Map();
     buildReport().forEach(r=>{
-      if(r.c1===null||r.d1===0)return;
+      if(r.c1===null)return;
+      if(r.d1===0&&r.rec===null)return;
       const it=M.byKey.get(r.key);
-      if(it?!passWho(it,'rec'):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
+      if(it?!recPass(it,r.key):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
       m.set(r.key,{p:r.p,d:r.d});
     });
     return m;
   },
   pendWord:'perlu recount',doneWord:'sudah recount',action:'Recount',prevWord:'Sudah direcount',
-  hint:'Hitung ulang fisiknya, lalu bandingkan dengan stok sistem dan hitungan 1.',info:k=>stokHTML(k,true),rowInfo:k=>stokHTML(k,true),
-  emptyScope:'Belum ada part yang selisih. Part selisih muncul di sini setelah dihitung di menu Hitung.',
+  hint:'Hitung ulang fisiknya, lalu bandingkan dengan stok recount dan hitungan 1.',info:k=>stokHTML(k,true,true),rowInfo:k=>stokHTML(k,true,true)+recWho(k),
+  emptyScope:'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem).',
   allDone:'Semua part selisih sudah direcount. Cek hasilnya di Report.',
   doneInfo:key=>{
     const c=D.counts.get(key);if(!c)return '';
@@ -1190,12 +1217,244 @@ const recC=Counter('rec',{
   }
 });
 
+/* ---------- RECOUNT: info dan penugasan H50 (depo H5A/H5B otomatis ke PIC) ---------- */
+function recWho(k){
+  if(!isAdmin())return '';
+  const it=M.byKey.get(k);if(!it)return '';
+  const o=recOwner(k,it);
+  return '<div class="meta">'+(o?'<span>Recount: '+esc(uName(o))+'</span>':'<span class="badge pick">Belum ditugaskan recount</span>')+'</div>';
+}
+function renderRecInfo(){
+  const e=$('#recInfo');if(!e)return;
+  if(!isAdmin()){e.hidden=true;return;}
+  const rows=buildReport();let h50=0,h50n=0,dep=0,depn=0;
+  rows.forEach(r=>{
+    if(r.c1===null||r.rec!==null||r.d1===0)return;
+    const it=M.byKey.get(r.key);if(!it)return;
+    if(isDepot(it.w)){dep++;if(!recOwner(r.key,it))depn++;}
+    else{h50++;if(!recOwner(r.key,it))h50n++;}
+  });
+  const bits=[];
+  bits.push(D.rcs.size?'Stok recount aktif: <b>'+fmt(D.rcs.size)+'</b> part memakai qty dari menu Stok Recount.':'Belum ada Stok Recount, jadi qty stok diambil dari Database Stock. Upload di menu Stok Recount.');
+  bits.push('Perlu recount: H50 <b>'+fmt(h50)+'</b> part'+(h50n?' ('+fmt(h50n)+' belum ditugaskan, tekan Tugaskan recount H50)':'')+', depo H5A/H5B <b>'+fmt(dep)+'</b> part (otomatis ke PIC)'+(depn?', '+fmt(depn)+' di antaranya belum punya PIC di menu PIC Lokasi':'')+'.');
+  e.hidden=false;e.innerHTML=bits.join('<br>');
+}
+async function saveRasg(map){
+  const col='recasg-'+sid,by=new Map(),ids=new Set();
+  map.forEach((u,k)=>{if(!u)return;if(!by.has(u))by.set(u,[]);by.get(u).push(k);});
+  for(const [u,arr] of by){
+    arr.sort();
+    for(let i=0;i*300<arr.length;i++){
+      const id=u+'~'+String(i).padStart(3,'0');ids.add(id);
+      const dat={u:u,k:arr.slice(i*300,(i+1)*300)};
+      const ex=D.rasgCh.get(id);
+      if(!ex||ex.u!==u||JSON.stringify(ex.k||[])!==JSON.stringify(dat.k))await store.set(col,id,dat);
+    }
+  }
+  for(const id of Array.from(D.rasgCh.keys()))if(!ids.has(id))await store.del(col,id);
+}
+function recAsgSheet(){
+  const rows=buildReport(),list=[];
+  rows.forEach(r=>{
+    if(r.c1===null||r.rec!==null||r.d1===0)return;
+    const it=M.byKey.get(r.key);if(!it||isDepot(it.w))return;
+    list.push({key:r.key,p:r.p,d:r.d,l:r.l||'',w:r.w||''});
+  });
+  if(!list.length){toast('Belum ada part H50 yang perlu recount. Part muncul setelah dihitung dan hasilnya selisih.');return;}
+  list.sort((a,b)=>String(a.l||'~').localeCompare(String(b.l||'~'),'en',{numeric:true})||String(a.p).localeCompare(String(b.p),'en',{numeric:true}));
+  const sel=new Set();
+  const s=openSheet('<h2>Tugaskan recount H50</h2><div class="small muted">Pilih part yang akan di-recount, lalu pilih petugasnya. Untuk menugaskan satu lokasi sekaligus, cari nama lokasinya lalu tekan Pilih semua hasil. Depo H5A dan H5B otomatis ke PIC masing-masing.</div>'
+    +'<input id="raQ" type="search" placeholder="Cari part number, deskripsi, atau lokasi" aria-label="Cari part">'
+    +'<div class="tools"><button id="raAll" class="btn" type="button">Pilih semua hasil</button><button id="raNone" class="btn" type="button">Hapus pilihan</button></div>'
+    +'<div class="radio"><label><input type="checkbox" id="raUn">Hanya yang belum ditugaskan</label></div>'
+    +'<div id="raCnt" class="small muted"></div><div id="raList" class="list" style="max-height:38dvh;overflow:auto"></div>'
+    +'<label class="f">Tugaskan ke<select id="raWho"><option value="">Pilih petugas…</option>'+Array.from(D.users.keys()).sort().map(u=>'<option value="'+esc(u)+'">'+esc(uName(u))+' ('+esc(u)+')</option>').join('')+'<option value="__clear">(Kosongkan penugasan)</option></select></label>'
+    +'<div id="raErr" class="err" role="alert"></div><div class="two"><button id="raNo" class="btn" type="button">Batal</button><button id="raGo" class="btn pri" type="button">Tugaskan</button></div>');
+  const match=()=>{
+    const q=norm($('#raQ',s).value),un=$('#raUn',s).checked;
+    return list.filter(x=>(!un||!D.rasg.get(x.key))&&(!q||norm(x.p).includes(q)||norm(x.d).includes(q)||norm(x.l).includes(q)));
+  };
+  const cnt=(m,n)=>{$('#raCnt',s).textContent=fmt(m)+' part cocok'+(m>n?' (tampil '+fmt(n)+' pertama)':'')+' · '+fmt(sel.size)+' dipilih';};
+  const draw=()=>{
+    const m=match(),show=m.slice(0,100);cnt(m.length,show.length);
+    $('#raList',s).innerHTML=show.map(x=>{const cur=D.rasg.get(x.key);return '<label class="row" style="grid-template-columns:auto minmax(0,1fr)"><input type="checkbox" data-k="'+esc(x.key)+'"'+(sel.has(x.key)?' checked':'')+' style="width:20px;height:20px;accent-color:var(--accent)"><div class="rm"><span class="mono">'+esc(x.p)+'</span><div class="ds">'+(esc(x.d)||'<i>tanpa deskripsi</i>')+'</div><div class="meta"><span>Lokasi '+esc(x.l||'-')+'</span><span>'+(cur?esc(uName(resolvePic(cur))):'Belum ditugaskan')+'</span></div></div></label>';}).join('')||empty('Tidak ada part yang cocok.');
+  };
+  $('#raQ',s).addEventListener('input',draw);
+  $('#raUn',s).addEventListener('change',draw);
+  $('#raList',s).addEventListener('change',e=>{
+    const c=e.target.closest('[data-k]');if(!c)return;
+    if(c.checked)sel.add(c.dataset.k);else sel.delete(c.dataset.k);
+    const m=match();cnt(m.length,Math.min(m.length,100));
+  });
+  $('#raAll',s).onclick=()=>{match().forEach(x=>sel.add(x.key));draw();};
+  $('#raNone',s).onclick=()=>{sel.clear();draw();};
+  $('#raNo',s).onclick=closeSheet;
+  $('#raGo',s).onclick=async()=>{
+    const who=$('#raWho',s).value,err=$('#raErr',s);err.textContent='';
+    if(!sel.size){err.textContent='Pilih minimal satu part.';return;}
+    if(!who){err.textContent='Pilih petugas dulu.';return;}
+    const map=new Map(D.rasg);
+    sel.forEach(k=>{if(who==='__clear')map.delete(k);else map.set(k,who);});
+    const n=sel.size;
+    closeSheet();
+    if(await safe(()=>saveRasg(map)))toast(who==='__clear'?'Penugasan recount dikosongkan ('+fmt(n)+' part)':fmt(n)+' part ditugaskan recount ke '+uName(who));
+  };
+  draw();
+}
+$('#recAsg').addEventListener('click',recAsgSheet);
+
+/* ---------- STOK RECOUNT: stok terbaru khusus untuk Recount (per opname) ---------- */
+async function saveRcs(map){
+  const col='rcstock-'+sid,arr=Array.from(map.values()).sort((a,b)=>String(a.p).localeCompare(String(b.p),'en',{numeric:true})),ids=new Set();
+  for(let i=0;i*250<arr.length;i++){
+    const id='c'+String(i).padStart(4,'0');ids.add(id);
+    await store.set(col,id,{items:arr.slice(i*250,(i+1)*250)});
+  }
+  for(const id of Array.from(D.rcsCh.keys()))if(!ids.has(id))await store.del(col,id);
+}
+/* cocokkan baris file ke satu baris Database Stock: part + lokasi + WH; kalau tidak persis, longgarkan. Part yang ada di beberapa lokasi/WH tanpa pembeda dilewati (ambigu) */
+function rcsResolve(pn,lc,wh,LI){
+  const k0=rk(pn,lc,wh);
+  if(M.byKey.has(k0))return {k:k0};
+  let c=M.byPart.get(keyOf(pn))||LI.get(loose(pn))||[];
+  if(!c.length)return {miss:1};
+  if(wh){c=c.filter(y=>norm(y.w)===wh);if(!c.length)return {miss:1};}
+  if(norm(lc)){const a=c.filter(y=>norm(y.l)&&keyOf(y.l)===keyOf(lc));if(a.length)c=a;}
+  if(c.length===1)return {k:ik(c[0])};
+  return {amb:1};
+}
+let rimp=null;
+$('#rcsIn').addEventListener('change',async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat. Muat ulang halaman.');return;}
+  if(!M.byKey.size){toast('Database Stock masih kosong. Isi dulu lewat menu Database Stock.');return;}
+  try{
+    const rows=sheetToRows(await f.arrayBuffer());
+    let h=rows.findIndex(r=>r.filter(c=>String(c).trim()!=='').length>=2);if(h<0)h=0;
+    const head=(rows[h]||[]).map((c,i)=>String(c).trim()||('Kolom '+(i+1)));
+    const data=rows.slice(h+1).filter(r=>r.some(c=>String(c).trim()!==''));
+    const find=(re,fb)=>{const i=head.findIndex(x=>re.test(x));return i>=0?i:fb;};
+    const LI=looseIdx(),sample=data.slice(0,400);
+    const hit=t=>M.byPart.has(keyOf(t))||LI.has(loose(t));
+    let pn=-1,bs=0;head.forEach((_,i)=>{let sc=0;sample.forEach(r=>{const v=r[i];if(v===''||v==null)return;if(hit(String(v).trim()))sc++;});if(sc>bs){bs=sc;pn=i;}});
+    if(pn<0)pn=find(/part\s*(no|num|number)|material(?!\s*desc)|^pn$|kode|item\s*(no|code)/i,0);
+    let wh=-1,bw=0;head.forEach((_,i)=>{let sc=0;sample.forEach(r=>{if(/^H5[0AB]$/i.test(norm(r[i])))sc++;});if(sc>bw){bw=sc;wh=i;}});
+    if(wh<0)wh=head.findIndex(x=>/^wh|whn|warehouse|wh\s*no/i.test(x));
+    let lc=find(/lokasi|location|^loc|^bin$|stor\.?\s*bin|storage\s*bin|rak|posisi/i,-1);if(lc===wh||lc===pn)lc=-1;
+    let q=find(/qty|quantity|stok|stock|jumlah|unrestricted/i,-1);
+    if(q<0||q===pn||q===wh||q===lc){let b=0;q=-1;head.forEach((_,i)=>{if(i===pn||i===wh||i===lc)return;let sc=0;sample.forEach(r=>{if(r[i]!==''&&parseQty(r[i])!==null)sc++;});if(sc>b){b=sc;q=i;}});}
+    if(q<0)q=Math.min(head.length-1,pn===0?1:0);
+    rimp={name:f.name,head:head,data:data,LI:LI,pn:pn,q:q,lc:lc,wh:wh};
+    renderRcsImport();
+  }catch(err){console.error(err);toast('File tidak bisa dibaca. Pakai .xlsx, .xls, atau .csv.');}
+});
+function rcsCalc(){
+  const ip=+$('#rPn').value,iq=+$('#rQ').value,il=+$('#rLc').value,iw=+$('#rWh').value;
+  const inc=new Map();let miss=0,amb=0,bad=0;const ex=[],exA=[];
+  rimp.data.forEach(r=>{
+    const p=String(r[ip]==null?'':r[ip]).trim();if(!p)return;
+    const q=parseQty(r[iq]);if(q===null||q<0){bad++;return;}
+    const lc=il>=0?String(r[il]==null?'':r[il]).trim():'',wh=iw>=0?norm(r[iw]):'';
+    const res=rcsResolve(p,lc,wh,rimp.LI);
+    if(res.miss){miss++;if(ex.length<3&&ex.indexOf(p)<0)ex.push(p);return;}
+    if(res.amb){amb++;if(exA.length<3&&exA.indexOf(p)<0)exA.push(p);return;}
+    const it=M.byKey.get(res.k),o=inc.get(res.k);
+    if(o)o.q=round(o.q+q);else inc.set(res.k,{k:res.k,p:it.p,l:it.l||'',w:it.w||'',q:q});
+  });
+  return {inc:inc,miss:miss,amb:amb,bad:bad,ex:ex,exA:exA};
+}
+function renderRcsImport(){
+  const p=$('#rcsPanel');
+  if(!rimp){p.hidden=true;p.innerHTML='';return;}
+  const o=(sel,none)=>(none?'<option value="-1">(tidak ada)</option>':'')+rimp.head.map((h,i)=>'<option value="'+i+'"'+(i===sel?' selected':'')+'>'+esc(h)+'</option>').join('');
+  p.hidden=false;
+  p.innerHTML='<h3 style="font-size:22px">Stok recount: '+esc(rimp.name)+'</h3><div class="small muted">'+fmt(rimp.data.length)+' baris terbaca. Cek kolom di bawah, lalu terapkan.</div>'
+   +'<label class="f">Kolom part number<select id="rPn">'+o(rimp.pn)+'</select></label>'
+   +'<label class="f">Kolom qty stok recount<select id="rQ">'+o(rimp.q)+'</select></label>'
+   +'<label class="f">Kolom lokasi / bin (membantu kalau part ada di beberapa lokasi)<select id="rLc">'+o(rimp.lc,1)+'</select></label>'
+   +'<label class="f">Kolom WH (H50, H5A, H5B)<select id="rWh">'+o(rimp.wh,1)+'</select></label>'
+   +'<div class="radio"><label><input type="radio" name="rMode" value="merge" checked>Gabungkan: perbarui part di file ini, part lain tetap</label><label><input type="radio" name="rMode" value="replace">Ganti seluruh stok recount</label></div>'
+   +'<div class="small muted">Part number ganda di file dijumlahkan qty-nya. Part di luar file memakai stok dari Database Stock.</div>'
+   +'<div id="rPrev" class="note small"></div>'
+   +'<div class="two"><button id="rNo" class="btn" type="button">Batal</button><button id="rGo" class="btn pri" type="button">Terapkan</button></div>';
+  const prev=()=>{
+    const R=rcsCalc();let auto=0;
+    R.inc.forEach((v,k)=>{const c=D.counts.get(k);if(c&&round(c.q-v.q)===0&&!D.recounts.has(k))auto++;});
+    $('#rPrev').innerHTML='Cocok dengan Database Stock: <b>'+fmt(R.inc.size)+'</b> part.'
+      +(auto?' <b>'+fmt(auto)+'</b> part yang sudah dihitung langsung Sesuai (tidak perlu recount).':'')
+      +(R.miss?'<br>Tidak ada di database, dilewati: '+fmt(R.miss)+(R.ex.length?' (contoh: '+R.ex.map(esc).join(', ')+')':'')+'.':'')
+      +(R.amb?'<br>Ambigu (part ada di beberapa lokasi/WH dan file tidak membedakan), dilewati: '+fmt(R.amb)+(R.exA.length?' (contoh: '+R.exA.map(esc).join(', ')+')':'')+'. Pilih kolom lokasi atau WH supaya terbaca.':'')
+      +(R.bad?'<br>Qty kosong atau bukan angka, dilewati: '+fmt(R.bad)+' baris.':'');
+  };
+  p.onchange=prev;prev();
+  $('#rNo').onclick=()=>{rimp=null;renderRcsImport();};
+  $('#rGo').onclick=async()=>{
+    const R=rcsCalc();
+    if(!R.inc.size){toast('Tidak ada baris yang cocok dengan Database Stock. Cek pilihan kolom.');return;}
+    const replace=(document.querySelector('input[name=rMode]:checked')||{}).value==='replace';
+    if(replace&&D.rcs.size&&!await ask('Ganti <b>seluruh</b> stok recount ('+fmt(D.rcs.size)+' part) dengan '+fmt(R.inc.size)+' part dari file ini?','Ganti semua',true))return;
+    const out=replace?new Map():new Map(D.rcs),now=Date.now();
+    R.inc.forEach((v,k)=>out.set(k,Object.assign({},v,{t:now})));
+    const b=$('#rGo');b.disabled=true;b.textContent='Menyimpan…';
+    const ok=await safe(()=>saveRcs(out));
+    if(ok){toast(fmt(R.inc.size)+' part stok recount tersimpan'+(R.miss+R.amb?', '+fmt(R.miss+R.amb)+' baris dilewati':''));rimp=null;renderRcsImport();}
+    else{const b2=$('#rGo');if(b2){b2.disabled=false;b2.textContent='Terapkan';}}
+  };
+}
+let rcsLimit=60;
+function renderRcs(){
+  const rep=buildReport(),byK=new Map();rep.forEach(r=>byK.set(r.key,r));
+  let tq=0,auto=0,need=0;
+  D.rcs.forEach((v,k)=>{tq+=Number(v.q)||0;const r=byK.get(k);if(!r||r.c1===null||r.rec!==null)return;if(r.d1===0)auto++;else need++;});
+  $('#rcsTiles').innerHTML='<div class="tile"><div class="l">Part di stok recount</div><div class="v">'+fmt(D.rcs.size)+'</div></div>'
+    +'<div class="tile"><div class="l">Total qty</div><div class="v">'+fmt(round(tq))+'</div></div>'
+    +'<div class="tile"><div class="l">Langsung sesuai</div><div class="v" style="color:var(--plus)">'+fmt(auto)+'</div><div class="s">tidak perlu recount</div></div>'
+    +'<div class="tile"><div class="l">Perlu recount</div><div class="v" style="color:var(--minus)">'+fmt(need)+'</div><div class="s">dari part yang sudah dihitung</div></div>';
+  const q=norm($('#rcsQ').value),box=$('#rcsList');
+  let arr=Array.from(D.rcs.values());
+  if(q)arr=arr.filter(x=>norm(x.p).includes(q)||norm(x.l).includes(q)||norm((M.byKey.get(x.k)||{}).d).includes(q));
+  arr.sort((a,b)=>String(a.p).localeCompare(String(b.p),'en',{numeric:true}));
+  if(!arr.length){box.innerHTML=empty(D.rcs.size?'Tidak ada part yang cocok.':'Belum ada stok recount.<br>Upload file Excel berisi part number dan qty terbaru.');return;}
+  const show=arr.slice(0,rcsLimit),v=x=>x===null||x===undefined?'-':fmt(x);
+  box.innerHTML=show.map(x=>{
+    const r=byK.get(x.k)||{},it=M.byKey.get(x.k)||{};
+    let st='pending',lb='Belum dihitung';
+    if(r.c1!==null&&r.c1!==undefined){
+      if(r.rec!==null&&r.rec!==undefined){st=r.st;lb=r.st==='ok'?'Sudah recount: 0':'Sudah recount: '+sgn(r.diff);}
+      else if(r.d1===0){st='ok';lb='Sesuai';}
+      else{st=r.d1>0?'plus':'minus';lb='Selisih '+sgn(r.d1);}
+    }
+    return '<div class="row"><div class="rm">'+pnLink(x.p)+'<div class="ds">'+(esc(it.d)||'<i>tanpa deskripsi</i>')+'</div><div class="meta">'+(x.w?'<span>WH '+esc(x.w)+'</span>':'')+(x.l?'<span>Lokasi '+esc(x.l)+'</span>':'')+'</div>'
+      +'<div class="grid4"><span>Stok awal<b>'+(it.q===undefined?'-':fmt(it.q))+'</b></span><span>Stok recount<b>'+fmt(x.q)+'</b></span><span>Hitung 1<b>'+v(r.c1)+'</b></span></div></div>'
+      +'<div class="dcol"><small>Status</small><span class="diff '+st+'" style="font-size:14px">'+esc(lb)+'</span></div></div>';
+  }).join('')+(arr.length>show.length?'<button class="btn block" type="button" id="rcsMore">Tampilkan lebih banyak ('+fmt(arr.length-show.length)+' lagi)</button>':'');
+}
+$('#rcsQ').addEventListener('input',()=>{rcsLimit=60;renderRcs();});
+$('#rcsList').addEventListener('click',e=>{if(e.target.closest('#rcsMore')){rcsLimit+=60;renderRcs();}});
+$('#rcsTpl').addEventListener('click',()=>{
+  if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat.');return;}
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Qty','Lokasi','WH']],[24,12,14,8]),'Stok Recount');
+  saveXlsx(wb,'template-stok-recount.xlsx');
+});
+$('#rcsExport').addEventListener('click',()=>{
+  if(typeof XLSX==='undefined'){toast('Pembaca Excel belum termuat.');return;}
+  if(!D.rcs.size){toast('Stok recount masih kosong.');return;}
+  const byK=new Map();buildReport().forEach(r=>byK.set(r.key,r));
+  const nv=x=>x===null||x===undefined?'':x;
+  const rows=Array.from(D.rcs.values()).sort((a,b)=>String(a.p).localeCompare(String(b.p),'en',{numeric:true})).map(x=>{const r=byK.get(x.k)||{};return [x.p,r.d||'',x.w||'',x.l||'',nv(r.s0),x.q,nv(r.c1),nv(r.d1)];});
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,sheetOf([['Part Number','Deskripsi','WH','Lokasi','Stok Awal','Stok Recount','Hitung 1','Selisih Hitung 1 vs Stok Recount']].concat(rows),[24,44,8,14,12,12,10,18]),'Stok Recount');
+  saveXlsx(wb,'stok-recount-'+new Date().toISOString().slice(0,10)+'.xlsx');
+});
+$('#rcsWipe').onclick=()=>wipeAsk('stok recount ('+fmt(D.rcs.size)+' part)',()=>delAll('rcstock-'+sid,D.rcsCh.keys()));
+
 /* ---------- REPORT ---------- */
 const repPn=a=>D.users.has(a)?uName(a):'';
 const fmtFull=t=>{try{return new Date(t).toLocaleString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}};
 function repRowHTML(r,pn){
   const pic=r.a?pn(r.a):'';
-  const meta=(r.l||pic||r.cb)?'<div class="meta">'+(r.w?'<span>WH '+esc(r.w)+'</span>':'')+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+'</div>':'';
+  const meta=(r.l||pic||r.cb||r.su)?'<div class="meta">'+(r.w?'<span>WH '+esc(r.w)+'</span>':'')+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+(r.su?'<span>Stok awal '+fmt(r.s0)+' → stok recount '+fmt(r.sys)+'</span>':'')+'</div>':'';
   const v=x=>x===null||x===undefined?'-':fmt(x);
   return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta
     +'<div class="grid4"><span>Stok<b>'+fmt(r.sys)+'</b></span><span>Hitung 1<b>'+v(r.c1)+'</b></span><span>Recount<b>'+v(r.rec)+'</b></span><span>Akhir<b>'+v(r.fin)+'</b></span></div>'+((r.st==='plus'||r.st==='minus')?'<button class="btn sm trb" type="button" data-trace="'+encodeURIComponent(r.p)+'">Telusuri selisih</button>':'')+'</div>'
@@ -1259,15 +1518,15 @@ $('#repQ').addEventListener('input',()=>{repLimit=60;renderRep();});
 $('#repList').addEventListener('click',e=>{if(e.target.closest('#repMore')){repLimit+=60;renderRep();}});
 function reportWB(rows,pn,titleRows){
   const g=splitGroups(rows),S=summarize(rows);
-  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh'];
+  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh','Qty Stok Awal'];
   const cell=x=>x===null||x===undefined?'':x;
-  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'']);
-  const W=[24,44,14,10,10,12,10,8,14,18,18,18];
+  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'',r.su?r.s0:'']);
+  const W=[24,44,14,10,10,12,10,8,14,18,18,18,14];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,sheetOf(titleRows.concat([[],
     ['Total part',S.tot],['Sudah dihitung',S.done],['Belum dihitung',S.pend],
     ['Part selisih plus',S.plus],['Total qty plus',S.sp],['Part selisih minus',S.minus],['Total qty minus',S.sm],['Part sesuai',S.ok],[],
-    ['Selisih = hitung akhir - qty stok sistem. Hitung akhir = recount bila ada.']]),[34,26]),'Ringkasan');
+    ['Selisih = hitung akhir - qty stok sistem. Hitung akhir = recount bila ada. Bila ada Stok Recount, qty dari sana dipakai sebagai stok sistem.']]),[34,26]),'Ringkasan');
   [['plus','Selisih Plus'],['minus','Selisih Minus'],['ok','Sesuai'],['pending','Belum Dihitung']].forEach(x=>{
     XLSX.utils.book_append_sheet(wb,sheetOf([head].concat(body(sortGroup(g[x[0]].slice(),x[0]))),W),x[1]);
   });
@@ -1532,17 +1791,59 @@ function asgSheet(){
 }
 
 /* ---------- cakupan STO: full stok atau hanya part yang bergerak ---------- */
-async function saveScope(mode,set,locs,wcfg){
-  const col='scope-'+sid,arr=Array.from(set).sort(),ids=new Set();
-  for(let i=0;i*400<arr.length;i++){const id='c'+String(i).padStart(4,'0');ids.add(id);await store.set(col,id,{k:arr.slice(i*400,(i+1)*400)});}
+
+/* ---------- persentase STO per gudang (STO Move): lokasi dengan part terbanyak dikurangi lebih dulu ---------- */
+const pctTarget=(n,p)=>p>=100?n:Math.min(n,Math.max(p>0&&n>0?1:0,Math.round(n*p/100)));
+function pctDesc(){
+  const pc=(D.meta.get('state')||{}).scopePct;if(!pc)return '';
+  return WHS.some(w=>pc[w]!=null&&pc[w]<100)?' Persentase STO: '+WHS.map(w=>w+' '+(pc[w]==null?100:pc[w])+'%').join(' · ')+'.':'';
+}
+/* bk = daftar lokasi, tiap lokasi berisi part urut dari yang paling dulu dibuang. Buang R part: selalu dari lokasi yang saat itu paling banyak (dihitung langsung, tanpa loop satu-satu) */
+function trimBuckets(bk,R){
+  const drop=new Set();if(R<=0)return drop;
+  const cnt=bk.map(b=>b.length),total=cnt.reduce((a,b)=>a+b,0);
+  if(R>=total){bk.forEach(b=>b.forEach(x=>drop.add(x.k)));return drop;}
+  const rem=T=>{let s=0;for(let i=0;i<cnt.length;i++)if(cnt[i]>T)s+=cnt[i]-T;return s;};
+  let lo=0,hi=cnt.reduce((a,b)=>Math.max(a,b),0);
+  while(hi-lo>1){const mid=(lo+hi)>>1;if(rem(mid)>=R)lo=mid;else hi=mid;}
+  const cut=cnt.map(c=>Math.max(0,c-(lo+1)));
+  const r=R-cut.reduce((a,b)=>a+b,0);
+  if(r>0){const idx=[];cnt.forEach((c,i)=>{if(c>=lo+1)idx.push(i);});idx.sort((a,b)=>cnt[b]-cnt[a]||a-b);for(let j=0;j<r&&j<idx.length;j++)cut[idx[j]]++;}
+  bk.forEach((b,i)=>{for(let j=0;j<cut[i]&&j<b.length;j++)drop.add(b[j].k);});
+  return drop;
+}
+function applyPct(full,pc,mvList){
+  const sc=new Map();(mvList||[]).forEach(x=>{const k=keyOf(x.p);sc.set(k,(sc.get(k)||0)+Math.abs(Number(x.q)||0));});
+  const out=new Set(),grp=new Map();
+  full.forEach(k=>{
+    const it=M.byKey.get(k),w=it?norm(it.w):'';
+    if(!it||pc[w]===undefined||pc[w]>=100){out.add(k);return;}
+    let g=grp.get(w);if(!g){g=new Map();grp.set(w,g);}
+    const lk=keyOf(it.l||'');let b=g.get(lk);if(!b){b=[];g.set(lk,b);}
+    b.push({k:k,p:it.p,s:sc.get(keyOf(it.p))||0});
+  });
+  grp.forEach((g,w)=>{
+    const bks=Array.from(g.entries()).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'en',{numeric:true})).map(e=>e[1]);
+    /* dalam satu lokasi, part dengan pergerakan paling kecil dibuang lebih dulu */
+    bks.forEach(b=>b.sort((x,y)=>x.s-y.s||String(y.p).localeCompare(String(x.p),'en',{numeric:true})));
+    const n=bks.reduce((t,b)=>t+b.length,0),drop=trimBuckets(bks,n-pctTarget(n,pc[w]));
+    bks.forEach(b=>b.forEach(x=>{if(!drop.has(x.k))out.add(x.k);}));
+  });
+  return out;
+}
+async function saveScope(mode,set,locs,wcfg,full,pct){
+  const col='scope-'+sid,arr=Array.from(set).sort(),fa=full?Array.from(full).sort():[],ids=new Set();
+  const nCh=Math.max(Math.ceil(arr.length/400),Math.ceil(fa.length/400));
+  for(let i=0;i<nCh;i++){const id='c'+String(i).padStart(4,'0');ids.add(id);const dat={k:arr.slice(i*400,(i+1)*400)};if(fa.length)dat.f=fa.slice(i*400,(i+1)*400);await store.set(col,id,dat);}
   for(const id of Array.from(D.scopeCh.keys()))if(!ids.has(id))await store.del(col,id);
-  await store.set('meta','state',Object.assign({},D.meta.get('state')||{},{scope:mode},locs?{scopeLocs:locs}:{},wcfg?{whCfg:wcfg}:{}));
+  await store.set('meta','state',Object.assign({},D.meta.get('state')||{},{scope:mode},locs?{scopeLocs:locs}:{},wcfg?{whCfg:wcfg}:{},{scopePct:pct||null}));
 }
 const loose=s=>norm(s).replace(/\.0+$/,'').replace(/[^A-Z0-9]/g,'').replace(/^0+(?=.)/,'');
 function looseIdx(){const m=new Map();MS.list.forEach(x=>{const k=loose(x.p);if(!k)return;if(!m.has(k))m.set(k,[]);m.get(k).push(x);});return m;}
 function scopeSheet(){
   const st=D.meta.get('state')||{};
-  const list=scopeKind()==='moved'?new Set(D.scopeSet):new Set();let mvNew=[];
+  const list=scopeKind()==='moved'?new Set(D.scopeFull&&D.scopeFull.size?D.scopeFull:D.scopeSet):new Set();let mvNew=[];
+  const pct0=st.scopePct||{},pv0=w=>{const v=Number(pct0[w]);return pct0[w]!=null&&isFinite(v)?v:100;};
   const kind0=scopeKind()==='full'?'full':'moved';
   const locStat=new Map();
   MS.list.forEach(x=>{if(!norm(x.l))return;const k=keyOf(x.l),r=locStat.get(k)||{n:String(x.l).trim(),c:0};r.c++;locStat.set(k,r);});
@@ -1556,13 +1857,26 @@ function scopeSheet(){
    +'<div id="scMv"><div class="small muted">Daftar sekarang: <b id="scN">'+fmt(list.size)+'</b> part. Upload barang masuk dan barang keluar di kotaknya masing-masing. Boleh lebih dari satu file, hasilnya ditambahkan ke daftar.</div>'
    +card('in','Barang Masuk','Receiving atau barang yang masuk ke gudang. Setelah file dibaca, pilih tanggalnya (otomatis kemarin).')
    +card('out','Barang Keluar','Barang yang keluar dari gudang. Setelah file dibaca, pilih tanggalnya (otomatis kemarin).')
+   +'<div class="panel"><b>Persentase STO per gudang</b><div class="small muted">Atur berapa persen dari part yang diupload (barang masuk dan keluar) yang ikut di-STO. Kalau dikurangi, lokasi dengan part paling banyak dikurangi lebih dulu, jadi lokasi besar tidak mendominasi. Isi 100 untuk memakai semua part.</div>'
+   +'<div class="tools">'+WHS.map(w=>'<label class="f grow">'+w+' (%)<input id="scP_'+w+'" type="number" min="0" max="100" step="1" inputmode="numeric" value="'+pv0(w)+'"></label>').join('')+'</div>'
+   +'<div id="scPv" class="small"></div></div>'
    +'<button id="scClr" class="btn dan block" type="button">Kosongkan daftar</button></div>'
    +'<div id="scErr" class="err" role="alert"></div><div class="two"><button id="scNo" class="btn" type="button">Batal</button><button id="scGo" class="btn pri" type="button">Simpan</button></div>');
   const mode=()=>(s.querySelector('input[name=scM]:checked')||{}).value;
   const sync=()=>{$('#scMv',s).hidden=mode()!=='moved';};
   s.addEventListener('change',e=>{if(e.target.name==='scM')sync();});sync();
   $('#scNo',s).onclick=closeSheet;
-  $('#scClr',s).onclick=()=>{list.clear();mvNew=[];$('#scN',s).textContent='0';['in','out'].forEach(i=>{$('#rs_'+i,s).textContent='';});};
+  const readPct=()=>{const o={};WHS.forEach(w=>{const el=$('#scP_'+w,s);let v=el&&el.value!==''?Number(el.value):100;if(!isFinite(v))v=100;o[w]=Math.max(0,Math.min(100,Math.round(v)));});return o;};
+  const pvPct=()=>{
+    const pc=readPct(),cnt=new Map();let other=0;
+    list.forEach(k=>{const it=M.byKey.get(k),w=it?norm(it.w):'';if(pc[w]!==undefined)cnt.set(w,(cnt.get(w)||0)+1);else other++;});
+    let tot=other;const lines=[];
+    WHS.forEach(w=>{const n=cnt.get(w)||0,t=pctTarget(n,pc[w]);tot+=t;if(n)lines.push(w+': '+fmt(n)+' part → <b>'+fmt(t)+'</b> part ('+pc[w]+'%)');});
+    if(other)lines.push('WH lain / tanpa WH: '+fmt(other)+' part (tidak dikurangi)');
+    $('#scPv',s).innerHTML=(lines.length?lines.join('<br>')+'<br>':'')+'Total yang di-STO: <b>'+fmt(tot)+'</b> part';
+  };
+  WHS.forEach(w=>{$('#scP_'+w,s).addEventListener('input',pvPct);});pvPct();
+  $('#scClr',s).onclick=()=>{list.clear();mvNew=[];$('#scN',s).textContent='0';pvPct();['in','out'].forEach(i=>{$('#rs_'+i,s).textContent='';});};
 
   /* STO barang bergerak: satu kotak upload untuk masuk, satu untuk keluar */
   const setupCard=(id,kind)=>{
@@ -1666,7 +1980,7 @@ function scopeSheet(){
           }
         });
         if(locs.size)MS.list.forEach(x=>{if(norm(x.l)&&(locs.has(keyOf(x.l)+'|'+norm(x.w))||locs.has(keyOf(x.l)+'|'))){const k=ik(x);if(!list.has(k)){list.add(k);add++;}}});
-        $('#scN',s).textContent=fmt(list.size);m.hidden=true;
+        $('#scN',s).textContent=fmt(list.size);pvPct();m.hidden=true;
         const nDep=Array.from(list).filter(k=>{const it=M.byKey.get(k);return it&&isDepot(it.w);}).length,noPic=DEPOT_WH.filter(w=>nDep&&!picOf(w));
         const msg=fmt(add)+' part ditambahkan dari '+fname+(nDep?' ('+fmt(nDep)+' part depo H5A/H5B'+(noPic.length?', tapi PIC lokasi '+noPic.join(' dan ')+' belum diisi di menu PIC Lokasi':'')+')':'')+(miss?', '+fmt(miss)+' part tidak ada di database dilewati (contoh: '+missEx.join(', ')+')':'');
         $('#rs_'+id,s).textContent=msg;toast(msg);
@@ -1682,11 +1996,12 @@ function scopeSheet(){
   setupCard('in','in');setupCard('out','out');
 
   $('#scGo',s).onclick=async()=>{
-    const md=mode();const set=list;
+    const md=mode(),pc=md==='moved'?readPct():null;
     if(md==='moved'&&!list.size){$('#scErr',s).textContent='Daftar masih kosong. Upload barang masuk atau barang keluar dulu.';return;}
+    const set=md==='moved'?applyPct(list,pc,MV.list.concat(mvNew)):list,nUp=list.size;
     closeSheet();
     if(mvNew.length)await safe(()=>saveMv(mvNew));
-    if(await safe(()=>saveScope(md,set)))toast(md==='moved'?'STO barang bergerak ('+fmt(set.size)+' part)':'STO semua stok');
+    if(await safe(()=>saveScope(md,set,null,null,md==='moved'?list:null,pc)))toast(md==='moved'?'STO barang bergerak ('+fmt(set.size)+' part'+(set.size<nUp?' dari '+fmt(nUp)+' part yang diupload':'')+')':'STO semua stok');
   };
 }
 $('#scopeBtn').addEventListener('click',scopeSheet);
@@ -1851,7 +2166,7 @@ function closeMenu(){$('.tabs').classList.remove('open');$('#sbScrim').hidden=tr
 $('#menuBtn').addEventListener('click',()=>{const t=$('.tabs'),o=!t.classList.contains('open');t.classList.toggle('open',o);$('#sbScrim').hidden=!o;});
 $('#sbScrim').addEventListener('click',closeMenu);
 $$('.tab').forEach(b=>b.addEventListener('click',closeMenu));
-function renderSto(){const k=scopeKind(),st=D.meta.get('state')||{},nl=(st.scopeLocs||[]).length;$('#stoInfo').innerHTML='<b>'+(k==='moved'?'Mode: STO barang bergerak':k==='loc'?'Mode: STO Lokasi (diatur di menu STO LOKASI)':'Mode: STO semua stok')+'</b><div class="small muted">'+(k==='full'?'Semua part di database ikut dihitung.':fmt(D.scopeSet.size)+' part di daftar STO'+(k==='loc'?' ('+whDesc()+')':'')+'.')+'</div>';}
+function renderSto(){const k=scopeKind(),st=D.meta.get('state')||{},nl=(st.scopeLocs||[]).length;$('#stoInfo').innerHTML='<b>'+(k==='moved'?'Mode: STO barang bergerak':k==='loc'?'Mode: STO Lokasi (diatur di menu STO LOKASI)':'Mode: STO semua stok')+'</b><div class="small muted">'+(k==='full'?'Semua part di database ikut dihitung.':fmt(D.scopeSet.size)+' part di daftar STO'+(k==='loc'?' ('+whDesc()+')':'')+'.'+(k==='moved'?pctDesc():''))+'</div>';}
 function canonPic(t){t=String(t||'').trim();if(!t)return '';const u=t.toLowerCase();if(D.users.has(u))return u;const n=nameIdx().get(norm(t));if(n)return n;return /^[a-z0-9._-]{3,20}$/.test(u)?u:t;}
 let locLimit=80;
 function renderLoc(){
@@ -1967,10 +2282,12 @@ async function boot(){
     D.meta=m;if(!fc)got.meta=true;
     const s=(m.get('state')||{}).sid||'main';
     if(s!==sid){
-      sid=s;if(unCounts)unCounts();if(unRec)unRec();if(unSc)unSc();D.counts=new Map();D.recounts=new Map();D.scopeSet=new Set();D.scopeCh=new Map();
+      sid=s;if(unCounts)unCounts();if(unRec)unRec();if(unSc)unSc();if(unRcs)unRcs();if(unRasg)unRasg();D.counts=new Map();D.recounts=new Map();D.scopeSet=new Set();D.scopeCh=new Map();D.scopeFull=null;D.rcs=new Map();D.rcsCh=new Map();D.rasg=new Map();D.rasgCh=new Map();
       unCounts=store.listen('counts-'+sid,cm=>{D.counts=cm;onData();},bad);
       unRec=store.listen('recounts-'+sid,cm=>{D.recounts=cm;onData();},bad);
-      unSc=store.listen('scope-'+sid,cm=>{D.scopeCh=cm;const st=new Set();cm.forEach(v=>(v.k||[]).forEach(k=>st.add(k)));D.scopeSet=st;onData();},bad);
+      unSc=store.listen('scope-'+sid,cm=>{D.scopeCh=cm;const st=new Set(),fl=new Set();cm.forEach(v=>{(v.k||[]).forEach(k=>st.add(k));(v.f||[]).forEach(k=>fl.add(k));});D.scopeSet=st;D.scopeFull=fl.size?fl:null;onData();},bad);
+      unRcs=store.listen('rcstock-'+sid,cm=>{D.rcsCh=cm;const m=new Map();Array.from(cm.keys()).sort().forEach(id=>((cm.get(id)||{}).items||[]).forEach(o=>m.set(o.k,o)));D.rcs=m;onData();},bad);
+      unRasg=store.listen('recasg-'+sid,cm=>{D.rasgCh=cm;const m=new Map();cm.forEach(v=>(v.k||[]).forEach(k=>m.set(k,v.u)));D.rasg=m;onData();},bad);
     }
     onData();
   },bad);
