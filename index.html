@@ -327,7 +327,7 @@ input[type=date]{width:100%;min-height:46px;padding:10px 12px;border:1px solid v
 
     <!-- STOK RECOUNT -->
     <section id="v-rcs" class="view" hidden>
-      <div class="panel"><h2 style="font-size:24px">Stok Recount</h2><div class="small muted">Upload stok terbaru khusus untuk Recount. Menu Recount memakai qty dari sini sebagai stok sistem, bukan dari Database Stock. Part yang hitungan pertamanya sama dengan stok ini otomatis hilang dari Recount dan langsung masuk Sesuai. Data ini hanya berlaku untuk opname yang sedang berjalan.</div></div>
+      <div class="panel"><h2 style="font-size:24px">Stok Recount</h2><div class="small muted">Upload stok terbaru khusus untuk Recount. Menu Recount memakai qty dari sini sebagai stok sistem, bukan dari Database Stock. Part yang hitungan pertamanya sama dengan stok ini otomatis hilang dari Recount dan langsung masuk Sesuai. Stok ini hanya dipakai untuk part yang sudah dihitung dan hitungan pertamanya selisih dari stok awal (yang memang masuk Recount). Part yang sudah Sesuai dengan stok awal atau belum dihitung tidak diubah. Data ini hanya berlaku untuk opname yang sedang berjalan.</div></div>
       <div class="tiles" id="rcsTiles"></div>
       <div class="tools">
         <label class="btn pri" for="rcsIn"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Upload stok recount</label>
@@ -624,11 +624,19 @@ async function saveMaster(list){
   list.forEach(x=>{const k=ik(x);if(norm(x.p))seen.set(k,{p:String(x.p).trim(),d:x.d||'',q:Number(x.q)||0,l:String(x.l||'').trim(),a:x.a||'',w:x.w||''});});
   await MS.save(Array.from(seen.values()).sort((a,b)=>a.p.localeCompare(b.p,'en',{numeric:true})));
 }
+/* Stok Recount hanya dipakai untuk part yang memang masuk Recount: sudah dihitung dan hitungan 1 selisih dari stok awal (atau sudah pernah direcount).
+   Part yang sudah Sesuai dengan stok awal, atau belum dihitung, tidak diubah apa-apa. */
+function rcsFor(key,sys0){
+  const rs=D.rcs.get(key);if(!rs)return null;
+  const c=D.counts.get(key);if(!c)return null;
+  if(round(c.q-sys0)===0&&!D.recounts.has(key))return null;
+  return rs;
+}
 /* satu baris laporan per part. Hitung akhir = recount bila ada, kalau tidak hitungan pertama. Selisih = hitung akhir - stok sistem */
 function buildReport(){
   const rows=[];const seen=new Set();
   const mk=(key,p,d,sys0)=>{
-    const c=D.counts.get(key),rc=D.recounts.get(key),rs=D.rcs.get(key),sys=rs?rs.q:sys0;
+    const c=D.counts.get(key),rc=D.recounts.get(key),rs=rcsFor(key,sys0),sys=rs?rs.q:sys0;
     const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),nt:((D.rnotes.get(key)||{}).items||[]),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
@@ -940,7 +948,7 @@ function counterHTML(p,title,ph,extra){
    +'<div id="'+p+'Panel" class="panel pcard" hidden></div><div id="'+p+'Head" class="small muted"></div><div id="'+p+'List" class="list"></div>';
 }
 const stokHTML=(k,withC,rc)=>{
-  const it=M.byKey.get(k),c=D.counts.get(k),r=rc?D.rcs.get(k):null;
+  const it=M.byKey.get(k),c=D.counts.get(k),r=(rc&&it)?rcsFor(k,it.q):null;
   const sys=r?r.q:(it?it.q:null);
   return '<div class="grid4" style="margin-top:8px"><span>'+(r?'Stok recount':'Stok sistem')+'<b>'+(sys!==null?fmt(sys):'-')+'</b></span>'+(r&&it&&round(r.q)!==round(it.q)?'<span>Stok awal<b>'+fmt(it.q)+'</b></span>':'')+(withC?'<span>Hitungan 1<b>'+(c?fmt(c.q):'-')+'</b></span>':'')
     +(withC&&c&&sys!==null?selSpan('Selisih',round(c.q-sys)):'')
@@ -1382,7 +1390,7 @@ function renderRcsImport(){
    +'<div class="two"><button id="rNo" class="btn" type="button">Batal</button><button id="rGo" class="btn pri" type="button">Terapkan</button></div>';
   const prev=()=>{
     const R=rcsCalc();let auto=0;
-    R.inc.forEach((v,k)=>{const c=D.counts.get(k);if(c&&round(c.q-v.q)===0&&!D.recounts.has(k))auto++;});
+    R.inc.forEach((v,k)=>{const c=D.counts.get(k),it=M.byKey.get(k);if(c&&it&&round(c.q-it.q)!==0&&round(c.q-v.q)===0&&!D.recounts.has(k))auto++;});
     $('#rPrev').innerHTML='Cocok dengan Database Stock: <b>'+fmt(R.inc.size)+'</b> part.'
       +(auto?' <b>'+fmt(auto)+'</b> part yang sudah dihitung langsung Sesuai (tidak perlu recount).':'')
       +(R.miss?'<br>Tidak ada di database, dilewati: '+fmt(R.miss)+(R.ex.length?' (contoh: '+R.ex.map(esc).join(', ')+')':'')+'.':'')
@@ -1408,7 +1416,7 @@ let rcsLimit=60;
 function renderRcs(){
   const rep=buildReport(),byK=new Map();rep.forEach(r=>byK.set(r.key,r));
   let tq=0,auto=0,need=0;
-  D.rcs.forEach((v,k)=>{tq+=Number(v.q)||0;const r=byK.get(k);if(!r||r.c1===null||r.rec!==null)return;if(r.d1===0)auto++;else need++;});
+  D.rcs.forEach((v,k)=>{tq+=Number(v.q)||0;const r=byK.get(k);if(!r||r.c1===null||r.rec!==null)return;if(round(r.c1-r.s0)===0)return;if(r.d1===0)auto++;else need++;});
   $('#rcsTiles').innerHTML='<div class="tile"><div class="l">Part di stok recount</div><div class="v">'+fmt(D.rcs.size)+'</div></div>'
     +'<div class="tile"><div class="l">Total qty</div><div class="v">'+fmt(round(tq))+'</div></div>'
     +'<div class="tile"><div class="l">Langsung sesuai</div><div class="v" style="color:var(--plus)">'+fmt(auto)+'</div><div class="s">tidak perlu recount</div></div>'
