@@ -942,8 +942,11 @@ function counterHTML(p,title,ph,extra){
 const stokHTML=(k,withC,rc)=>{
   const it=M.byKey.get(k),c=D.counts.get(k),r=rc?D.rcs.get(k):null;
   const sys=r?r.q:(it?it.q:null);
-  return '<div class="grid4" style="margin-top:8px"><span>'+(r?'Stok recount':'Stok sistem')+'<b>'+(sys!==null?fmt(sys):'-')+'</b></span>'+(r&&it&&round(r.q)!==round(it.q)?'<span>Stok awal<b>'+fmt(it.q)+'</b></span>':'')+(withC?'<span>Hitungan 1<b>'+(c?fmt(c.q):'-')+'</b></span>':'')+'</div>';
+  return '<div class="grid4" style="margin-top:8px"><span>'+(r?'Stok recount':'Stok sistem')+'<b>'+(sys!==null?fmt(sys):'-')+'</b></span>'+(r&&it&&round(r.q)!==round(it.q)?'<span>Stok awal<b>'+fmt(it.q)+'</b></span>':'')+(withC?'<span>Hitungan 1<b>'+(c?fmt(c.q):'-')+'</b></span>':'')
+    +(withC&&c&&sys!==null?selSpan('Selisih',round(c.q-sys)):'')
+    +(withC&&rc&&D.recounts.has(k)&&sys!==null?'<span>Recount<b>'+fmt(D.recounts.get(k).q)+'</b></span>'+selSpan('Selisih akhir',round(D.recounts.get(k).q-sys)):'')+'</div>';
 };
+const selSpan=(lb,d)=>'<span>'+lb+'<b style="color:'+(d>0?'var(--plus)':d<0?'var(--minus)':'inherit')+'">'+(d===0?'0':sgn(d))+'</b></span>';
 function locLine(k){const it0=M.byKey.get(k)||{},l=it0.l,w=it0.w;return l?'<div style="margin-top:6px;font-size:17px;font-weight:600">'+(w?'WH <span class="mono">'+esc(w)+'</span> · ':'')+'Lokasi: <span class="mono">'+esc(l)+'</span></div>':'<div class="meta"><span class="badge pick">Tanpa lokasi</span></div>';}
 function Counter(p,cfg){
   let sel=null,limit=40,mode='pending';
