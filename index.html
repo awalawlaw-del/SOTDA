@@ -660,8 +660,9 @@ function rcPullCfg(){
   const c=(D.meta.get('state')||{}).rcPull||{};let p=Number(c.pct);if(!isFinite(p))p=100;
   return {on:!!c.on,pct:Math.max(0,Math.min(100,Math.round(p)))};
 }
-function rcPullCalc(pct){
-  const out={set:new Set(),from:new Map(),parts:0,seeds:0,cand:0,kept:0,wh:new Map()};
+function rcPullCalc(pct,on){
+  const out={set:new Set(),pick:new Set(),from:new Map(),parts:0,seeds:0,pulled:0,total:0,kept:0,wh:new Map()};
+  const cand=[];
   M.byPart.forEach(items=>{
     const byW=new Map();
     items.forEach(it=>{const w=norm(it.w);if(!byW.has(w))byW.set(w,[]);byW.get(w).push(it);});
@@ -669,16 +670,25 @@ function rcPullCalc(pct){
       const seeds=[],sib=[];
       arr.forEach(it=>{
         const k=ik(it),c=D.counts.get(k);
-        if(c&&inScope(k)){const rs=rcsBase(k,it.q),sys=rs?rs.q:it.q;if(round(c.q-sys)!==0){seeds.push(it);return;}}
+        if(c&&inScope(k)){const rs=rcsBase(k,it.q),sys=rs?rs.q:it.q,d=round(c.q-sys);if(d!==0){seeds.push({it:it,s:Math.abs(d)});return;}}
         sib.push(it);
       });
-      if(!seeds.length||!sib.length)return;
-      sib.sort((a,b)=>(Number(b.q)||0)-(Number(a.q)||0)||String(a.l||'').localeCompare(String(b.l||''),'en',{numeric:true}));
-      const keep=pctTarget(sib.length,pct),from=seeds.map(x=>x.l||'(tanpa lokasi)').sort((a,b)=>a.localeCompare(b,'en',{numeric:true}));
-      out.parts++;out.seeds+=seeds.length;out.cand+=sib.length;out.kept+=keep;
-      const wn=w||'(tanpa WH)',st=out.wh.get(wn)||{cand:0,kept:0};st.cand+=sib.length;st.kept+=keep;out.wh.set(wn,st);
-      sib.slice(0,keep).forEach(x=>{const k=ik(x);out.set.add(k);out.from.set(k,from);});
+      if(!seeds.length)return;
+      seeds.forEach(x=>cand.push({k:ik(x.it),w:w,pri:0,s:x.s}));
+      out.seeds+=seeds.length;
+      if(!on||!sib.length)return;
+      const from=seeds.map(x=>x.it.l||'(tanpa lokasi)').sort((a,b)=>a.localeCompare(b,'en',{numeric:true}));
+      sib.forEach(x=>cand.push({k:ik(x),w:w,pri:1,s:Number(x.q)||0,sib:true,from:from}));
+      out.parts++;out.pulled+=sib.length;
     });
+  });
+  /* urutan prioritas: lokasi selisih (selisih terbesar dulu), lalu lokasi tarikan (stok terbanyak dulu) */
+  cand.sort((a,b)=>a.pri-b.pri||b.s-a.s||(a.k<b.k?-1:a.k>b.k?1:0));
+  out.total=cand.length;out.kept=pctTarget(cand.length,pct);
+  cand.forEach((c,i)=>{
+    const wn=c.w||'(tanpa WH)',st=out.wh.get(wn)||{total:0,kept:0};st.total++;
+    if(i<out.kept){st.kept++;out.pick.add(c.k);if(c.sib){out.set.add(c.k);out.from.set(c.k,c.from);}}
+    out.wh.set(wn,st);
   });
   return out;
 }
@@ -687,11 +697,11 @@ function rcPull(){
   const sig=[D.counts,D.rcs,M,D.scopeSet,D.meta];
   if(_rpS&&_rpS.every((x,i)=>x===sig[i]))return _rpV;
   const cfg=rcPullCfg();
-  _rpV=cfg.on?rcPullCalc(cfg.pct):{set:new Set(),from:new Map(),parts:0,seeds:0,cand:0,kept:0,wh:new Map()};
+  _rpV=rcPullCalc(cfg.pct,cfg.on);
   _rpS=sig;return _rpV;
 }
-/* part yang perlu di-recount dan belum direcount: selisih di Hitung, atau ditarik dari lokasi lain */
-const needRec=r=>r.rec===null&&!r.ok&&((r.c1!==null&&r.d1!==0)||r.pl);
+/* part yang perlu di-recount dan belum direcount: terpilih sesuai persentase (selisih di Hitung, atau ditarik dari lokasi lain) */
+const needRec=r=>r.rec===null&&!r.ok&&rcPull().pick.has(r.key);
 function pullTag(k){
   const f=rcPull().from.get(k);if(!f)return '';
   return '<div class="meta"><span class="badge rc">Ditarik</span><span>part ini selisih di lokasi '+esc(f.slice(0,3).join(', '))+(f.length>3?' +'+(f.length-3)+' lagi':'')+'</span></div>';
@@ -1126,7 +1136,7 @@ $('#v-rru').innerHTML=counterHTML('rru','Progres recount ulang','Scan lokasi ata
   +'<label class="f">Ronde<select id="rruRound"></select></label>'
   +'<div class="seg" id="rruSeg" role="group" aria-label="Daftar recount ulang"><button type="button" data-m="pending" aria-pressed="true">Perlu recount ulang</button><button type="button" data-m="done" aria-pressed="false">Sudah recount ulang</button></div>');
 $('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan lokasi atau part number',
-  '<div class="note small">Per lokasi: pilih lokasi, lalu isi qty hasil recount tiap part dan Submit. Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report. Bila Metode tarik lokasi lain aktif, lokasi lain dari part yang selisih (WH sama) juga masuk di sini dengan tanda Ditarik.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button><button id="recPullBtn" class="btn block" type="button" hidden>Metode tarik lokasi lain</button>'
+  '<div class="note small">Per lokasi: pilih lokasi, lalu isi qty hasil recount tiap part dan Submit. Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report. Bila Metode tarik lokasi lain aktif, lokasi lain dari part yang selisih (WH sama) juga masuk di sini dengan tanda Ditarik. Admin bisa mengatur persentase part yang di-recount.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button><button id="recPullBtn" class="btn block" type="button" hidden>Metode tarik lokasi lain &amp; persentase</button>'
   +'<div class="seg" id="recSeg" role="group" aria-label="Daftar recount"><button type="button" data-m="pending" aria-pressed="true">Perlu recount</button><button type="button" data-m="done" aria-pressed="false">Sudah recount</button></div>');
 
 /* ---------- Hitung per LOKASI: pilih lokasi, semua part di lokasi itu muncul, submit per part, yang sudah submit hilang dari list ---------- */
@@ -1295,10 +1305,10 @@ const okOne=k=>okMany([k]);
 const recC=LocCounter('rec',{
   scope:()=>{
     const m=new Map();
+    const P=rcPull();
     buildReport(true).forEach(r=>{
       if(D.rok.has(r.key))return;
-      const seed=r.c1!==null&&!(r.d1===0&&r.rec===null);
-      if(!seed&&!r.pl)return;
+      if(!P.pick.has(r.key)&&r.rec===null)return;
       const it=M.byKey.get(r.key);
       if(it?!recPass(it,r.key):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
       m.set(r.key,{p:r.p,d:r.d,l:r.l||'',w:r.w||''});
@@ -1371,7 +1381,7 @@ function renderRecInfo(){
   bits.push(D.rcs.size?'Stok recount aktif: <b>'+fmt(D.rcs.size)+'</b> part memakai qty dari menu Stok Recount.':'Belum ada Stok Recount, jadi qty stok diambil dari Database Stock. Upload di menu Stok Recount.');
   bits.push('Perlu recount: H50 <b>'+fmt(h50)+'</b> part'+(h50n?' ('+fmt(h50n)+' belum ditugaskan, tekan Tugaskan recount H50)':'')+', depo H5A/H5B <b>'+fmt(dep)+'</b> part (otomatis ke PIC)'+(depn?', '+fmt(depn)+' di antaranya belum punya PIC di menu PIC Lokasi':'')+'.');
   const pc=rcPullCfg(),P=rcPull();
-  bits.push(pc.on?'Metode tarik lokasi lain: <b>AKTIF</b> ('+pc.pct+'% lokasi tambahan). <b>'+fmt(P.kept)+'</b> lokasi tambahan ikut Recount, dari '+fmt(P.cand)+' lokasi lain milik '+fmt(P.parts)+' part yang selisih.':'Metode tarik lokasi lain: <b>mati</b>. Tekan tombol Metode tarik lokasi lain untuk mengaktifkan.');
+  bits.push('Persentase Recount: <b>'+pc.pct+'%</b> ('+fmt(P.kept)+' dari '+fmt(P.total)+' part'+(pc.pct<100?'; selisih terbesar dan stok terbanyak diutamakan':'')+'). Metode tarik lokasi lain: '+(pc.on?'<b>AKTIF</b> ('+fmt(P.pulled)+' lokasi lain dari '+fmt(P.parts)+' part yang selisih)':'<b>mati</b>')+'.');
   e.hidden=false;e.innerHTML=bits.join('<br>');
 }
 async function saveRasg(map){
@@ -1439,27 +1449,30 @@ function recAsgSheet(){
 $('#recAsg').addEventListener('click',recAsgSheet);
 function recPullSheet(){
   const cur=rcPullCfg();
-  const s=openSheet('<h2>Metode tarik lokasi lain</h2><div class="small muted">Part yang selisih di Hitung menarik semua lokasi lain dari part number yang sama, di WH yang sama, ke menu Recount. Contoh: part A selisih di lokasi A1 dan part A juga ada di A3, maka A3 ikut masuk list Recount. Lokasi yang selisih (A1) tetap 100% di-recount.</div>'
-   +'<div class="radio"><label><input type="radio" name="rpM" value="on"'+(cur.on?' checked':'')+'>Aktif</label><label><input type="radio" name="rpM" value="off"'+(cur.on?'':' checked')+'>Mati (Recount seperti biasa)</label></div>'
-   +'<div class="panel"><b>Persentase lokasi tambahan yang di-recount</b><div class="small muted">Berlaku untuk lokasi lain yang ditarik, bukan untuk lokasi yang selisih. Isi 100 untuk recount semuanya. Kalau kurang dari 100, lokasi dengan stok paling banyak diutamakan karena paling mungkin menyimpan selisihnya.</div>'
+  const s=openSheet('<h2>Metode tarik lokasi lain &amp; persentase</h2>'
+   +'<div class="panel"><b>1. Tarik lokasi lain</b><div class="small muted">Part yang selisih di Hitung menarik semua lokasi lain dari part number yang sama, di WH yang sama, ke menu Recount. Contoh: part A selisih di lokasi A1 dan part A juga ada di A3, maka A3 ikut masuk list Recount.</div>'
+   +'<div class="radio"><label><input type="radio" name="rpM" value="on"'+(cur.on?' checked':'')+'>Aktif</label><label><input type="radio" name="rpM" value="off"'+(cur.on?'':' checked')+'>Mati (tidak menarik lokasi lain)</label></div></div>'
+   +'<div class="panel"><b>2. Persentase yang di-recount</b><div class="small muted">Berlaku untuk seluruh part yang harus di-recount (lokasi selisih ditambah lokasi tarikan). Isi 100 untuk recount semuanya. Kalau kurang dari 100, yang diutamakan: lokasi selisih dengan selisih terbesar, lalu lokasi tarikan dengan stok terbanyak.</div>'
    +'<div class="tools">'+[100,75,50,25].map(v=>'<button class="btn" type="button" data-p="'+v+'">'+v+'%</button>').join('')+'<label class="f grow">Persen (%)<input id="rpP" type="number" min="0" max="100" step="1" inputmode="numeric" value="'+cur.pct+'"></label></div>'
    +'<div id="rpV" class="small"></div></div>'
    +'<div class="two"><button id="rpNo" class="btn" type="button">Batal</button><button id="rpGo" class="btn pri" type="button">Simpan</button></div>');
+  const isOn=()=>(s.querySelector('input[name=rpM]:checked')||{}).value==='on';
   const readPct=()=>{const el=$('#rpP',s);let v=el&&el.value!==''?Number(el.value):100;if(!isFinite(v))v=100;return Math.max(0,Math.min(100,Math.round(v)));};
   const pv=()=>{
-    const P=rcPullCalc(readPct());
-    if(!P.parts){$('#rpV',s).innerHTML='Belum ada part yang selisih di Hitung yang punya lokasi lain di WH yang sama.';return;}
-    const lines=[];P.wh.forEach((v,w)=>lines.push(esc(w)+': '+fmt(v.cand)+' lokasi lain → <b>'+fmt(v.kept)+'</b> ikut Recount'));
-    $('#rpV',s).innerHTML=lines.join('<br>')+'<br>Total: <b>'+fmt(P.kept)+'</b> lokasi tambahan dari '+fmt(P.cand)+', milik '+fmt(P.parts)+' part yang selisih ('+fmt(P.seeds)+' lokasi selisih).';
+    const P=rcPullCalc(readPct(),isOn());
+    if(!P.total){$('#rpV',s).innerHTML='Belum ada part yang selisih di Hitung, jadi belum ada yang perlu di-recount.';return;}
+    const lines=[];P.wh.forEach((v,w)=>lines.push(esc(w)+': '+fmt(v.total)+' part → <b>'+fmt(v.kept)+'</b> di-recount'));
+    $('#rpV',s).innerHTML=lines.join('<br>')+'<br>Total: <b>'+fmt(P.kept)+'</b> dari '+fmt(P.total)+' part ('+fmt(P.seeds)+' lokasi selisih'+(isOn()?' + '+fmt(P.pulled)+' lokasi tarikan':'')+').';
   };
   $('#rpP',s).addEventListener('input',pv);
+  s.addEventListener('change',e=>{if(e.target.name==='rpM')pv();});
   s.addEventListener('click',e=>{const b=e.target.closest('[data-p]');if(b){$('#rpP',s).value=b.dataset.p;pv();}});
   pv();
   $('#rpNo',s).onclick=closeSheet;
   $('#rpGo',s).onclick=async()=>{
-    const on=(s.querySelector('input[name=rpM]:checked')||{}).value==='on',pct=readPct();
+    const on=isOn(),pct=readPct();
     closeSheet();
-    if(await safe(()=>store.set('meta','state',Object.assign({},D.meta.get('state')||{},{rcPull:{on:on,pct:pct}}))))toast(on?'Metode tarik lokasi lain aktif ('+pct+'% lokasi tambahan)':'Metode tarik lokasi lain dimatikan');
+    if(await safe(()=>store.set('meta','state',Object.assign({},D.meta.get('state')||{},{rcPull:{on:on,pct:pct}}))))toast('Tersimpan: tarik lokasi lain '+(on?'aktif':'mati')+', '+pct+'% di-recount');
   };
 }
 $('#recPullBtn').addEventListener('click',recPullSheet);
