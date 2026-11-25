@@ -641,6 +641,13 @@ function buildReport(){
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
       r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
+      /* selisih yang sudah dijelaskan penuh oleh Catatan Recount (total qty delivery = selisih) dan dicatat admin: otomatis Sesuai, tidak perlu recount */
+      if(!rc&&r.d1!==0&&r.nt.length){
+        const adm=n=>{let ok=false;D.users.forEach((v,k)=>{if(v.role==='admin'&&(v.name||k)===n)ok=true;});return ok;};
+        const an=r.nt.filter(x=>adm(x.by||''));
+        const sm=round(an.reduce((t,x)=>t+(Number(x.q)||0),0));
+        if(an.length&&sm>0&&round(Math.abs(r.d1)-sm)===0){r.ex=true;r.fin=sys;r.diff=0;r.st='ok';}
+      }
     }
     return r;
   };
@@ -1213,7 +1220,7 @@ const recC=LocCounter('rec',{
     const m=new Map();
     buildReport().forEach(r=>{
       if(r.c1===null)return;
-      if(r.d1===0&&r.rec===null)return;
+      if((r.d1===0||r.ex)&&r.rec===null)return;
       const it=M.byKey.get(r.key);
       if(it?!recPass(it,r.key):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
       m.set(r.key,{p:r.p,d:r.d,l:r.l||'',w:r.w||''});
@@ -1240,7 +1247,7 @@ function renderRecInfo(){
   if(!isAdmin()){e.hidden=true;return;}
   const rows=buildReport();let h50=0,h50n=0,dep=0,depn=0;
   rows.forEach(r=>{
-    if(r.c1===null||r.rec!==null||r.d1===0)return;
+    if(r.c1===null||r.rec!==null||r.d1===0||r.ex)return;
     const it=M.byKey.get(r.key);if(!it)return;
     if(isDepot(it.w)){dep++;if(!recOwner(r.key,it))depn++;}
     else{h50++;if(!recOwner(r.key,it))h50n++;}
@@ -1267,7 +1274,7 @@ async function saveRasg(map){
 function recAsgSheet(){
   const rows=buildReport(),list=[];
   rows.forEach(r=>{
-    if(r.c1===null||r.rec!==null||r.d1===0)return;
+    if(r.c1===null||r.rec!==null||r.d1===0||r.ex)return;
     const it=M.byKey.get(r.key);if(!it||isDepot(it.w))return;
     list.push({key:r.key,p:r.p,d:r.d,l:r.l||'',w:r.w||''});
   });
@@ -1606,7 +1613,7 @@ function repRowHTML(r,pn){
   const pic=r.a?pn(r.a):'';
   const meta=(r.l||pic||r.cb||r.su)?'<div class="meta">'+(r.w?'<span>WH '+esc(r.w)+'</span>':'')+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+(r.su?'<span>Stok awal '+fmt(r.s0)+' → stok recount '+fmt(r.sys)+'</span>':'')+'</div>':'';
   const v=x=>x===null||x===undefined?'-':fmt(x);
-  return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta+noteHTML(r.nt)
+  return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+(r.ex?' <span class="badge rc">Dijelaskan catatan</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta+noteHTML(r.nt)
     +'<div class="grid4"><span>Stok<b>'+fmt(r.sys)+'</b></span><span>Hitung 1<b>'+v(r.c1)+'</b></span><span>Recount<b>'+v(r.rec)+'</b></span><span>Akhir<b>'+v(r.fin)+'</b></span></div>'+((r.st==='plus'||r.st==='minus')?'<button class="btn sm trb" type="button" data-trace="'+encodeURIComponent(r.p)+'">Telusuri selisih</button>':'')+'</div>'
     +'<div class="dcol"><small>Selisih</small><span class="diff '+r.st+'">'+(r.st==='pending'?'Belum':r.st==='ok'?'0':sgn(r.diff))+'</span></div></div>';
 }
