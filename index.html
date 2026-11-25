@@ -581,7 +581,7 @@ function rrIdx(){
 }
 const rrLine=k=>{const h=rrIdx().get(k)||[];return h.length>1?'<div class="meta">'+h.map(x=>'<span>Recount '+x.n+': '+fmt(x.q)+'</span>').join('')+'</div>':'';};
 function recPass(x,k,ff){
-  if(!inScope(k))return false;
+  if(!inRc(k))return false;
   const o=recOwner(k,x);
   if(!isAdmin())return o===me;
   const f=ff||whoF.rec;if(f==='all')return true;if(f==='__none')return !o;return o===f;
@@ -606,6 +606,7 @@ const wkey=w=>norm(w)||'_';
 function whDesc(){const wc=(D.meta.get('state')||{}).whCfg||{};return Object.keys(wc).filter(w=>wc[w].m!=='off').map(w=>(w==='_'?'Tanpa WH':w)+': '+(wc[w].m==='all'?'semua stok':fmt((wc[w].locs||[]).length)+' lokasi')).join(' · ')||'belum ada yang dipilih';}
 function scopeMode(){return scopeKind()!=='full';}
 function inScope(k){return !scopeMode()||D.scopeSet.has(k);}
+function inRc(k){return inScope(k)||rcPull().set.has(k);}
 function scopeBanner(){
   const on=scopeMode();
   const sk=scopeKind(),nl=((D.meta.get('state')||{}).scopeLocs||[]).length;const t=!on?'':sk==='loc'?'<b>STO LOKASI</b> ('+(((D.meta.get('state')||{}).whCfg)?whDesc():fmt(nl)+' lokasi')+'; '+fmt(D.scopeSet.size)+' part). Part di lokasi lain tidak ikut dihitung dan tidak masuk laporan.':'<b>MENU STO MOVE: hanya barang bergerak</b> ('+fmt(D.scopeSet.size)+' part di daftar). Part lain tidak ikut dihitung dan tidak masuk laporan.'+pctDesc();
@@ -640,25 +641,78 @@ async function saveMaster(list){
 }
 /* Stok Recount hanya dipakai untuk part yang memang masuk Recount: sudah dihitung dan hitungan 1 selisih dari stok awal (atau sudah pernah direcount).
    Part yang sudah Sesuai dengan stok awal, atau belum dihitung, tidak diubah apa-apa. */
-function rcsFor(key,sys0){
+function rcsBase(key,sys0){
   const rs=D.rcs.get(key);if(!rs)return null;
   const c=D.counts.get(key);if(!c)return null;
   if(round(c.q-sys0)===0&&!D.recounts.has(key))return null;
   return rs;
 }
+/* lokasi yang ditarik oleh Metode tarik lokasi lain memakai Stok Recount (bila ada) sebagai stok sistem, walau belum dihitung */
+function rcsFor(key,sys0){
+  const b=rcsBase(key,sys0);if(b)return b;
+  const rs=D.rcs.get(key);
+  return rs&&rcPull().set.has(key)?rs:null;
+}
+/* ---------- METODE TARIK LOKASI LAIN (Recount) ----------
+   Part yang selisih di Hitung (hitungan 1 beda dari stok) menarik semua lokasi lain dari part number yang sama di WH yang sama ke Recount.
+   Lokasi yang selisih selalu 100% di-recount. Persentase hanya berlaku untuk lokasi tambahan: stok paling banyak diutamakan. */
+function rcPullCfg(){
+  const c=(D.meta.get('state')||{}).rcPull||{};let p=Number(c.pct);if(!isFinite(p))p=100;
+  return {on:!!c.on,pct:Math.max(0,Math.min(100,Math.round(p)))};
+}
+function rcPullCalc(pct){
+  const out={set:new Set(),from:new Map(),parts:0,seeds:0,cand:0,kept:0,wh:new Map()};
+  M.byPart.forEach(items=>{
+    const byW=new Map();
+    items.forEach(it=>{const w=norm(it.w);if(!byW.has(w))byW.set(w,[]);byW.get(w).push(it);});
+    byW.forEach((arr,w)=>{
+      const seeds=[],sib=[];
+      arr.forEach(it=>{
+        const k=ik(it),c=D.counts.get(k);
+        if(c&&inScope(k)){const rs=rcsBase(k,it.q),sys=rs?rs.q:it.q;if(round(c.q-sys)!==0){seeds.push(it);return;}}
+        sib.push(it);
+      });
+      if(!seeds.length||!sib.length)return;
+      sib.sort((a,b)=>(Number(b.q)||0)-(Number(a.q)||0)||String(a.l||'').localeCompare(String(b.l||''),'en',{numeric:true}));
+      const keep=pctTarget(sib.length,pct),from=seeds.map(x=>x.l||'(tanpa lokasi)').sort((a,b)=>a.localeCompare(b,'en',{numeric:true}));
+      out.parts++;out.seeds+=seeds.length;out.cand+=sib.length;out.kept+=keep;
+      const wn=w||'(tanpa WH)',st=out.wh.get(wn)||{cand:0,kept:0};st.cand+=sib.length;st.kept+=keep;out.wh.set(wn,st);
+      sib.slice(0,keep).forEach(x=>{const k=ik(x);out.set.add(k);out.from.set(k,from);});
+    });
+  });
+  return out;
+}
+let _rpS=null,_rpV=null;
+function rcPull(){
+  const sig=[D.counts,D.rcs,M,D.scopeSet,D.meta];
+  if(_rpS&&_rpS.every((x,i)=>x===sig[i]))return _rpV;
+  const cfg=rcPullCfg();
+  _rpV=cfg.on?rcPullCalc(cfg.pct):{set:new Set(),from:new Map(),parts:0,seeds:0,cand:0,kept:0,wh:new Map()};
+  _rpS=sig;return _rpV;
+}
+/* part yang perlu di-recount dan belum direcount: selisih di Hitung, atau ditarik dari lokasi lain */
+const needRec=r=>r.rec===null&&!r.ok&&((r.c1!==null&&r.d1!==0)||r.pl);
+function pullTag(k){
+  const f=rcPull().from.get(k);if(!f)return '';
+  return '<div class="meta"><span class="badge rc">Ditarik</span><span>part ini selisih di lokasi '+esc(f.slice(0,3).join(', '))+(f.length>3?' +'+(f.length-3)+' lagi':'')+'</span></div>';
+}
 /* satu baris laporan per part. Hitung akhir = recount bila ada, kalau tidak hitungan pertama. Selisih = hitung akhir - stok sistem */
-function buildReport(){
+function buildReport(inc){
   const rows=[];const seen=new Set();
   const mk=(key,p,d,sys0)=>{
     const c=D.counts.get(key),hs=rrIdx().get(key)||[],rc=hs.length?hs[hs.length-1]:null,rs=rcsFor(key,sys0),sys=rs?rs.q:sys0;
-    const it0=M.byKey.get(key);const r={key:key,rn:hs.length?hs[hs.length-1].n:0,rh:hs,ok:D.rok.has(key),p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),nt:((D.rnotes.get(key)||{}).items||[]),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
+    const it0=M.byKey.get(key);const r={key:key,rn:hs.length?hs[hs.length-1].n:0,rh:hs,ok:D.rok.has(key),p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),nt:((D.rnotes.get(key)||{}).items||[]),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,pl:rcPull().set.has(key),st:'pending'};
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
+      r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
+    }else if(rc){
+      /* lokasi tarikan yang belum dihitung di Hitung tapi sudah direcount: hasil recount jadi hitung akhir */
+      r.fin=rc.q;r.diff=round(r.fin-sys);
       r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
     }
     return r;
   };
-  for(const it of MS.list){const k=ik(it);seen.add(k);if(!inScope(k))continue;rows.push(mk(k,it.p,it.d,it.q));}
+  for(const it of MS.list){const k=ik(it);seen.add(k);if(!inScope(k)&&!D.recounts.has(k)&&!(inc&&rcPull().set.has(k)))continue;rows.push(mk(k,it.p,it.d,it.q));}
   D.counts.forEach((c,k)=>{if(!seen.has(k))rows.push(mk(k,c.p,'(tidak ada di database)',0));});
   return rows;
 }
@@ -742,7 +796,7 @@ let rq=null;
 function scheduleRender(){if(rq)return;rq=requestAnimationFrame(()=>{rq=null;if(me&&!$('#shell').hidden)renderActive();});}
 function renderActive(){
   $('#userBtn').textContent=userName();
-  $$('.tab[data-admin]').forEach(b=>{b.hidden=!isAdmin();});$('#locBtn').hidden=!isAdmin();$('#asgBtn').hidden=!isAdmin();$('#scopeBtn').hidden=!isAdmin();scopeBanner();['dbWipe','mvBtn','hitWipe','recWipe','repWipe','recAsg','rcsWipe'].forEach(i=>{const e=$('#'+i);if(e)e.hidden=!isAdmin();});const xl=document.querySelector('label[for=xlsIn]');if(xl)xl.hidden=!isAdmin();
+  $$('.tab[data-admin]').forEach(b=>{b.hidden=!isAdmin();});$('#locBtn').hidden=!isAdmin();$('#asgBtn').hidden=!isAdmin();$('#scopeBtn').hidden=!isAdmin();scopeBanner();['dbWipe','mvBtn','hitWipe','recWipe','repWipe','recAsg','recPullBtn','rcsWipe'].forEach(i=>{const e=$('#'+i);if(e)e.hidden=!isAdmin();});const xl=document.querySelector('label[for=xlsIn]');if(xl)xl.hidden=!isAdmin();
   ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,lok:renderLok,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();renderRecInfo();},rcs:renderRcs,rru:()=>{fillWho('rru');renderRruSel();rruC.render();},rep:renderRep})[tab]();
 }
 
@@ -1072,7 +1126,7 @@ $('#v-rru').innerHTML=counterHTML('rru','Progres recount ulang','Scan lokasi ata
   +'<label class="f">Ronde<select id="rruRound"></select></label>'
   +'<div class="seg" id="rruSeg" role="group" aria-label="Daftar recount ulang"><button type="button" data-m="pending" aria-pressed="true">Perlu recount ulang</button><button type="button" data-m="done" aria-pressed="false">Sudah recount ulang</button></div>');
 $('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan lokasi atau part number',
-  '<div class="note small">Per lokasi: pilih lokasi, lalu isi qty hasil recount tiap part dan Submit. Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button>'
+  '<div class="note small">Per lokasi: pilih lokasi, lalu isi qty hasil recount tiap part dan Submit. Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report. Bila Metode tarik lokasi lain aktif, lokasi lain dari part yang selisih (WH sama) juga masuk di sini dengan tanda Ditarik.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button><button id="recPullBtn" class="btn block" type="button" hidden>Metode tarik lokasi lain</button>'
   +'<div class="seg" id="recSeg" role="group" aria-label="Daftar recount"><button type="button" data-m="pending" aria-pressed="true">Perlu recount</button><button type="button" data-m="done" aria-pressed="false">Sudah recount</button></div>');
 
 /* ---------- Hitung per LOKASI: pilih lokasi, semua part di lokasi itu muncul, submit per part, yang sudah submit hilang dari list ---------- */
@@ -1241,10 +1295,10 @@ const okOne=k=>okMany([k]);
 const recC=LocCounter('rec',{
   scope:()=>{
     const m=new Map();
-    buildReport().forEach(r=>{
-      if(r.c1===null)return;
+    buildReport(true).forEach(r=>{
       if(D.rok.has(r.key))return;
-      if(r.d1===0&&r.rec===null)return;
+      const seed=r.c1!==null&&!(r.d1===0&&r.rec===null);
+      if(!seed&&!r.pl)return;
       const it=M.byKey.get(r.key);
       if(it?!recPass(it,r.key):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
       m.set(r.key,{p:r.p,d:r.d,l:r.l||'',w:r.w||''});
@@ -1252,10 +1306,10 @@ const recC=LocCounter('rec',{
     return m;
   },
   map:()=>D.recounts,col:()=>'recounts-'+sid,allowNew:false,
-  stok:k=>stokHTML(k,true,true)+rrLine(k)+recWho(k)+noteHTML(notesOf(k)),okBtn:okBtn,onOk:okOne,onOkAll:okMany,
+  stok:k=>stokHTML(k,true,true)+rrLine(k)+recWho(k)+pullTag(k)+noteHTML(notesOf(k)),okBtn:okBtn,onOk:okOne,onOkAll:okMany,
   noteBtn:k=>{const n=notesOf(k).length;return '<button class="btn block" type="button" data-note="'+esc(k)+'">Catatan'+(n?' ('+fmt(n)+')':'')+'</button>';},onNote:k=>noteSheet(k),
   pw:'perlu recount',dw:'sudah direcount',act:'Recount',
-  empty:()=>'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem).',
+  empty:()=>'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem), beserta lokasi lain dari part itu bila Metode tarik lokasi lain aktif.',
   allDone:'Semua part selisih sudah direcount. Cek hasilnya di Report.'
 });
 
@@ -1263,8 +1317,8 @@ const recC=LocCounter('rec',{
 const rruC=LocCounter('rru',{
   scope:()=>{
     const m=new Map(),N=rruN;rruRows=new Map();
-    buildReport().forEach(r=>{
-      if(r.c1===null||D.rok.has(r.key)||!r.rn)return;
+    buildReport(true).forEach(r=>{
+      if(D.rok.has(r.key)||!r.rn)return;
       const has=r.rh.some(h=>h.n===N);
       if(!has&&!(r.rn===N-1&&r.diff!==0))return;
       const it=M.byKey.get(r.key);
@@ -1306,9 +1360,9 @@ function recWho(k){
 function renderRecInfo(){
   const e=$('#recInfo');if(!e)return;
   if(!isAdmin()){e.hidden=true;return;}
-  const rows=buildReport();let h50=0,h50n=0,dep=0,depn=0;
+  const rows=buildReport(true);let h50=0,h50n=0,dep=0,depn=0;
   rows.forEach(r=>{
-    if(r.c1===null||r.rec!==null||r.d1===0)return;
+    if(!needRec(r))return;
     const it=M.byKey.get(r.key);if(!it)return;
     if(isDepot(it.w)){dep++;if(!recOwner(r.key,it))depn++;}
     else{h50++;if(!recOwner(r.key,it))h50n++;}
@@ -1316,6 +1370,8 @@ function renderRecInfo(){
   const bits=[];
   bits.push(D.rcs.size?'Stok recount aktif: <b>'+fmt(D.rcs.size)+'</b> part memakai qty dari menu Stok Recount.':'Belum ada Stok Recount, jadi qty stok diambil dari Database Stock. Upload di menu Stok Recount.');
   bits.push('Perlu recount: H50 <b>'+fmt(h50)+'</b> part'+(h50n?' ('+fmt(h50n)+' belum ditugaskan, tekan Tugaskan recount H50)':'')+', depo H5A/H5B <b>'+fmt(dep)+'</b> part (otomatis ke PIC)'+(depn?', '+fmt(depn)+' di antaranya belum punya PIC di menu PIC Lokasi':'')+'.');
+  const pc=rcPullCfg(),P=rcPull();
+  bits.push(pc.on?'Metode tarik lokasi lain: <b>AKTIF</b> ('+pc.pct+'% lokasi tambahan). <b>'+fmt(P.kept)+'</b> lokasi tambahan ikut Recount, dari '+fmt(P.cand)+' lokasi lain milik '+fmt(P.parts)+' part yang selisih.':'Metode tarik lokasi lain: <b>mati</b>. Tekan tombol Metode tarik lokasi lain untuk mengaktifkan.');
   e.hidden=false;e.innerHTML=bits.join('<br>');
 }
 async function saveRasg(map){
@@ -1333,9 +1389,9 @@ async function saveRasg(map){
   for(const id of Array.from(D.rasgCh.keys()))if(!ids.has(id))await store.del(col,id);
 }
 function recAsgSheet(){
-  const rows=buildReport(),list=[];
+  const rows=buildReport(true),list=[];
   rows.forEach(r=>{
-    if(r.c1===null||r.rec!==null||r.d1===0)return;
+    if(!needRec(r))return;
     const it=M.byKey.get(r.key);if(!it||isDepot(it.w))return;
     list.push({key:r.key,p:r.p,d:r.d,l:r.l||'',w:r.w||''});
   });
@@ -1381,6 +1437,33 @@ function recAsgSheet(){
   draw();
 }
 $('#recAsg').addEventListener('click',recAsgSheet);
+function recPullSheet(){
+  const cur=rcPullCfg();
+  const s=openSheet('<h2>Metode tarik lokasi lain</h2><div class="small muted">Part yang selisih di Hitung menarik semua lokasi lain dari part number yang sama, di WH yang sama, ke menu Recount. Contoh: part A selisih di lokasi A1 dan part A juga ada di A3, maka A3 ikut masuk list Recount. Lokasi yang selisih (A1) tetap 100% di-recount.</div>'
+   +'<div class="radio"><label><input type="radio" name="rpM" value="on"'+(cur.on?' checked':'')+'>Aktif</label><label><input type="radio" name="rpM" value="off"'+(cur.on?'':' checked')+'>Mati (Recount seperti biasa)</label></div>'
+   +'<div class="panel"><b>Persentase lokasi tambahan yang di-recount</b><div class="small muted">Berlaku untuk lokasi lain yang ditarik, bukan untuk lokasi yang selisih. Isi 100 untuk recount semuanya. Kalau kurang dari 100, lokasi dengan stok paling banyak diutamakan karena paling mungkin menyimpan selisihnya.</div>'
+   +'<div class="tools">'+[100,75,50,25].map(v=>'<button class="btn" type="button" data-p="'+v+'">'+v+'%</button>').join('')+'<label class="f grow">Persen (%)<input id="rpP" type="number" min="0" max="100" step="1" inputmode="numeric" value="'+cur.pct+'"></label></div>'
+   +'<div id="rpV" class="small"></div></div>'
+   +'<div class="two"><button id="rpNo" class="btn" type="button">Batal</button><button id="rpGo" class="btn pri" type="button">Simpan</button></div>');
+  const readPct=()=>{const el=$('#rpP',s);let v=el&&el.value!==''?Number(el.value):100;if(!isFinite(v))v=100;return Math.max(0,Math.min(100,Math.round(v)));};
+  const pv=()=>{
+    const P=rcPullCalc(readPct());
+    if(!P.parts){$('#rpV',s).innerHTML='Belum ada part yang selisih di Hitung yang punya lokasi lain di WH yang sama.';return;}
+    const lines=[];P.wh.forEach((v,w)=>lines.push(esc(w)+': '+fmt(v.cand)+' lokasi lain → <b>'+fmt(v.kept)+'</b> ikut Recount'));
+    $('#rpV',s).innerHTML=lines.join('<br>')+'<br>Total: <b>'+fmt(P.kept)+'</b> lokasi tambahan dari '+fmt(P.cand)+', milik '+fmt(P.parts)+' part yang selisih ('+fmt(P.seeds)+' lokasi selisih).';
+  };
+  $('#rpP',s).addEventListener('input',pv);
+  s.addEventListener('click',e=>{const b=e.target.closest('[data-p]');if(b){$('#rpP',s).value=b.dataset.p;pv();}});
+  pv();
+  $('#rpNo',s).onclick=closeSheet;
+  $('#rpGo',s).onclick=async()=>{
+    const on=(s.querySelector('input[name=rpM]:checked')||{}).value==='on',pct=readPct();
+    closeSheet();
+    if(await safe(()=>store.set('meta','state',Object.assign({},D.meta.get('state')||{},{rcPull:{on:on,pct:pct}}))))toast(on?'Metode tarik lokasi lain aktif ('+pct+'% lokasi tambahan)':'Metode tarik lokasi lain dimatikan');
+  };
+}
+$('#recPullBtn').addEventListener('click',recPullSheet);
+
 
 /* ---------- STOK RECOUNT: stok terbaru khusus untuk Recount (per opname) ---------- */
 async function saveRcs(map){
