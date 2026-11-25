@@ -343,6 +343,7 @@ input[type=date]{width:100%;min-height:46px;padding:10px 12px;border:1px solid v
 
     <!-- RECOUNT -->
     <section id="v-rec" class="view" hidden></section>
+    <section id="v-rru" class="view" hidden></section>
 
     <!-- REPORT -->
     <section id="v-rep" class="view" hidden>
@@ -367,6 +368,7 @@ input[type=date]{width:100%;min-height:46px;padding:10px 12px;border:1px solid v
     <button class="tab" data-t="hit"><svg viewBox="0 0 24 24"><path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M8 12l3 3 5-6"/></svg>Hitung</button>
     <button class="tab" data-t="rcs" data-admin><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Stok Recount</button>
     <button class="tab" data-t="rec"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg>Recount</button>
+    <button class="tab" data-t="rru"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4M9 12h6M12 9v6"/></svg>Recount Ulang</button>
     <button class="tab" data-t="rep"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Report</button>
     <button class="tab" data-t="his"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2"/></svg>Riwayat</button>
   </div></nav>
@@ -540,16 +542,16 @@ async function saveMv(add){
   await MV.save(out);
 }
 /* ---------- state ---------- */
-const D={users:new Map(),meta:new Map(),chunks:new Map(),counts:new Map(),recounts:new Map(),locs:new Map(),hist:new Map(),scopeSet:new Set(),scopeCh:new Map(),scopeFull:null,rcs:new Map(),rcsCh:new Map(),rasg:new Map(),rasgCh:new Map(),rnotes:new Map()};
+const D={users:new Map(),meta:new Map(),chunks:new Map(),counts:new Map(),recounts:new Map(),rr:new Map(),rok:new Map(),locs:new Map(),hist:new Map(),scopeSet:new Set(),scopeCh:new Map(),scopeFull:null,rcs:new Map(),rcsCh:new Map(),rasg:new Map(),rasgCh:new Map(),rnotes:new Map()};
 const got={users:false,meta:false,master:false,locs:false,hist:false};
-let sid=null,unCounts=null,unRec=null,unSc=null,unRcs=null,unRasg=null,unRn=null,M={byKey:new Map(),byPart:new Map()};
+let sid=null,unCounts=null,unRec=null,unSc=null,unRcs=null,unRasg=null,unRn=null,unRr=null,unRok=null,M={byKey:new Map(),byPart:new Map()};
 let me=null,tab='db',canWrite=null,booted=false;
 let dbLimit=60,repLimit=60,repTab='plus';
 const isAdmin=()=>me&&D.users.get(me)&&D.users.get(me).role==='admin';
 const userName=()=>{const u=me&&D.users.get(me);return u?(u.name||me):'';};
 
 /* ---------- lokasi, PIC, dan pembagian tugas ---------- */
-const whoF={hit:'all',rec:'all'};
+const whoF={hit:'all',rec:'all',rru:'all'};
 let _bn=null,_bnU=null;
 const nameIdx=()=>{if(_bnU!==D.users){_bnU=D.users;_bn=new Map();D.users.forEach((v,k)=>{const n=norm(v.name||'');if(n&&!_bn.has(n))_bn.set(n,k);});}return _bn;};
 /* PIC di lokasi boleh username atau nama lengkap, akunnya boleh belum ada: begitu akun dengan username atau nama itu ada, otomatis terhubung */
@@ -566,11 +568,23 @@ const own=x=>(x.w&&isDepot(x.w)&&picOf(x.w))||picOf(x.l)||((x.a&&D.users.has(x.a
 const hasOwner=x=>!!own(x);
 /* Recount: depo H5A dan H5B otomatis ke PIC-nya; selain itu (H50) dipilih manual admin lewat Tugaskan recount */
 const recOwner=(k,x)=>isDepot(x.w)?own(x):(D.rasg.get(k)?resolvePic(D.rasg.get(k)):'');
-function recPass(x,k){
+let _rrA=null,_rrB=null,_rrI=null;
+function rrIdx(){
+  if(_rrA!==D.rr||_rrB!==D.recounts){
+    const m=new Map();
+    D.recounts.forEach((v,k)=>m.set(k,[{n:1,q:v.q,by:v.by||'',at:v.at||0}]));
+    D.rr.forEach(v=>{if(!v||!v.k)return;if(!m.has(v.k))m.set(v.k,[]);m.get(v.k).push({n:Number(v.rn)||2,q:v.q,by:v.by||'',at:v.at||0});});
+    m.forEach(a=>a.sort((x,y)=>x.n-y.n));
+    _rrA=D.rr;_rrB=D.recounts;_rrI=m;
+  }
+  return _rrI;
+}
+const rrLine=k=>{const h=rrIdx().get(k)||[];return h.length>1?'<div class="meta">'+h.map(x=>'<span>Recount '+x.n+': '+fmt(x.q)+'</span>').join('')+'</div>':'';};
+function recPass(x,k,ff){
   if(!inScope(k))return false;
   const o=recOwner(k,x);
   if(!isAdmin())return o===me;
-  const f=whoF.rec;if(f==='all')return true;if(f==='__none')return !o;return o===f;
+  const f=ff||whoF.rec;if(f==='all')return true;if(f==='__none')return !o;return o===f;
 }
 /* mode: loc = ikut PIC lokasi (bila lokasi belum punya PIC, penugasan lama dibiarkan), one = satu orang, keep = tidak diubah */
 function asg(mode,who,l,ex){
@@ -636,18 +650,11 @@ function rcsFor(key,sys0){
 function buildReport(){
   const rows=[];const seen=new Set();
   const mk=(key,p,d,sys0)=>{
-    const c=D.counts.get(key),rc=D.recounts.get(key),rs=rcsFor(key,sys0),sys=rs?rs.q:sys0;
-    const it0=M.byKey.get(key);const r={key:key,p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),nt:((D.rnotes.get(key)||{}).items||[]),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
+    const c=D.counts.get(key),hs=rrIdx().get(key)||[],rc=hs.length?hs[hs.length-1]:null,rs=rcsFor(key,sys0),sys=rs?rs.q:sys0;
+    const it0=M.byKey.get(key);const r={key:key,rn:hs.length?hs[hs.length-1].n:0,rh:hs,ok:D.rok.has(key),p:p,d:d,sys:sys,s0:sys0,su:!!rs&&round(rs.q)!==round(sys0),nt:((D.rnotes.get(key)||{}).items||[]),w:it0?it0.w||'':(c&&c.w)||'',l:it0?it0.l||'':(c&&c.l)||'',a:it0?own(it0):'',c1:c?c.q:null,cb:c?(c.by||''):'',rb:rc?(rc.by||''):'',ca:c?(c.at||0):0,rec:rc?rc.q:null,fin:null,diff:null,d1:null,st:'pending'};
     if(c){
       r.fin=rc?rc.q:c.q;r.diff=round(r.fin-sys);r.d1=round(c.q-sys);
       r.st=r.diff>0?'plus':r.diff<0?'minus':'ok';
-      /* selisih yang sudah dijelaskan penuh oleh Catatan Recount (total qty delivery = selisih) dan dicatat admin: otomatis Sesuai, tidak perlu recount */
-      if(!rc&&r.d1!==0&&r.nt.length){
-        const adm=n=>{let ok=false;D.users.forEach((v,k)=>{if(v.role==='admin'&&(v.name||k)===n)ok=true;});return ok;};
-        const an=r.nt.filter(x=>adm(x.by||''));
-        const sm=round(an.reduce((t,x)=>t+(Number(x.q)||0),0));
-        if(an.length&&sm>0&&round(Math.abs(r.d1)-sm)===0){r.ex=true;r.fin=sys;r.diff=0;r.st='ok';}
-      }
     }
     return r;
   };
@@ -727,7 +734,7 @@ function enter(){
 function go(t){
   tab=t;
   $$('.tab').forEach(b=>b.setAttribute('aria-current',b.dataset.t===t?'page':'false'));
-  ['db','loc','mvl','sto','lok','his','hit','rcs','rec','rep'].forEach(x=>{$('#v-'+x).hidden=x!==t;});
+  ['db','loc','mvl','sto','lok','his','hit','rcs','rec','rru','rep'].forEach(x=>{$('#v-'+x).hidden=x!==t;});
   renderActive();window.scrollTo(0,0);
 }
 $$('.tab').forEach(b=>b.addEventListener('click',()=>go(b.dataset.t)));
@@ -736,7 +743,7 @@ function scheduleRender(){if(rq)return;rq=requestAnimationFrame(()=>{rq=null;if(
 function renderActive(){
   $('#userBtn').textContent=userName();
   $$('.tab[data-admin]').forEach(b=>{b.hidden=!isAdmin();});$('#locBtn').hidden=!isAdmin();$('#asgBtn').hidden=!isAdmin();$('#scopeBtn').hidden=!isAdmin();scopeBanner();['dbWipe','mvBtn','hitWipe','recWipe','repWipe','recAsg','rcsWipe'].forEach(i=>{const e=$('#'+i);if(e)e.hidden=!isAdmin();});const xl=document.querySelector('label[for=xlsIn]');if(xl)xl.hidden=!isAdmin();
-  ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,lok:renderLok,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();renderRecInfo();},rcs:renderRcs,rep:renderRep})[tab]();
+  ({db:renderDb,loc:renderLoc,mvl:()=>{},sto:renderSto,lok:renderLok,his:renderHis,hit:()=>{fillWho('hit');hitC.render();},rec:()=>{fillWho('rec');recC.render();renderRecInfo();},rcs:renderRcs,rru:()=>{fillWho('rru');renderRruSel();rruC.render();},rep:renderRep})[tab]();
 }
 
 /* ---------- DATABASE ---------- */
@@ -1060,6 +1067,10 @@ function Counter(p,cfg){
 $('#v-hit').innerHTML=counterHTML('hit','Progres hitung','Scan lokasi atau part number',
   '<div class="note small">Hitung per lokasi: pilih lokasi, semua part di lokasi itu muncul. Submit tiap part setelah dihitung, part yang sudah disubmit hilang dari daftar.</div>'
   +'<div class="seg" id="hitSeg" role="group" aria-label="Daftar hitung"><button type="button" data-m="pending" aria-pressed="true">Belum dihitung</button><button type="button" data-m="done" aria-pressed="false">Sudah dihitung</button></div>');
+$('#v-rru').innerHTML=counterHTML('rru','Progres recount ulang','Scan lokasi atau part number',
+  '<div class="note small">Recount ulang hasil recount sebelumnya. Pilih Recount ke-2, 3, 4 dan seterusnya. Part yang masuk sini: sudah direcount, hasilnya masih selisih, dan belum di-OK admin. Admin bisa menekan OK di tab Sudah recount ulang (atau di menu Recount) supaya part hilang dari daftar. Hasil recount terakhir dipakai di Report.</div>'
+  +'<label class="f">Ronde<select id="rruRound"></select></label>'
+  +'<div class="seg" id="rruSeg" role="group" aria-label="Daftar recount ulang"><button type="button" data-m="pending" aria-pressed="true">Perlu recount ulang</button><button type="button" data-m="done" aria-pressed="false">Sudah recount ulang</button></div>');
 $('#v-rec').innerHTML=counterHTML('rec','Progres recount','Scan lokasi atau part number',
   '<div class="note small">Per lokasi: pilih lokasi, lalu isi qty hasil recount tiap part dan Submit. Daftar ini hanya berisi part yang hitungan pertamanya selisih dari stok recount (bila belum ada, dari stok sistem). Part yang sudah sama dengan stok recount otomatis tidak masuk sini dan langsung Sesuai. Hasil recount menggantikan hitungan pertama di Report.</div><div id="recInfo" class="note small" hidden></div><button id="recAsg" class="btn block" type="button" hidden>Tugaskan recount H50</button>'
   +'<div class="seg" id="recSeg" role="group" aria-label="Daftar recount"><button type="button" data-m="pending" aria-pressed="true">Perlu recount</button><button type="button" data-m="done" aria-pressed="false">Sudah recount</button></div>');
@@ -1129,9 +1140,10 @@ function LocCounter(p,C){
         return '<div class="row" data-k="'+esc(x.key)+'" style="grid-template-columns:minmax(0,1fr);'+(hl===x.key?'border-color:var(--accent);':'')+'"><div class="rm">'+pnLink(x.p)+'<div class="ds">'+(esc(x.d)||'<i>tanpa deskripsi</i>')+'</div>'+C.stok(x.key)
           +(prev?'<div class="note small">Hasil sekarang: <b>'+fmt(prev.q)+'</b>'+(prev.by?' oleh '+esc(prev.by):'')+'</div>':'')+'</div>'
           +'<div class="stepper"><button type="button" data-act="min" aria-label="Kurangi">−</button><input type="text" inputmode="decimal" placeholder="0" data-q="'+esc(x.key)+'" aria-label="Qty hasil hitung '+esc(x.p)+'" value="'+(prev&&!(x.key in keep.m)?esc(String(prev.q)):'')+'"><button type="button" data-act="plus" aria-label="Tambah">+</button></div>'
-          +(C.noteBtn?C.noteBtn(x.key):'')+'<button class="btn pri block" type="button" data-act="sub">'+act+'</button></div>';
+          +(C.noteBtn?C.noteBtn(x.key):'')+(C.okBtn?C.okBtn(x.key,mode):'')+'<button class="btn pri block" type="button" data-act="sub">'+act+'</button></div>';
       }).join('')
-      +(rs.length>1?'<button class="btn block" type="button" id="'+p+'All">'+act+' semua yang sudah diisi</button>':'');
+      +(rs.length>1?'<button class="btn block" type="button" id="'+p+'All">'+act+' semua yang sudah diisi</button>':'')
+      +(C.onOkAll&&mode==='done'&&rs.length&&isAdmin()?'<button class="btn block" type="button" id="'+p+'OkAll">OK semua part di lokasi ini ('+fmt(rs.length)+')</button>':'');
     pn.querySelectorAll('[data-q]').forEach(i=>{if(i.dataset.q in keep.m)i.value=keep.m[i.dataset.q];});
     if(keep.f){const i=pn.querySelector('[data-q="'+(window.CSS&&CSS.escape?CSS.escape(keep.f):keep.f)+'"]');if(i)i.focus();}
   }
@@ -1139,7 +1151,7 @@ function LocCounter(p,C){
     const q=parseQty(qv);
     if(q===null||q<0){toast('Isi qty hasil hitung dengan angka.');return false;}
     const prev=C.map().get(it.key);
-    return await safe(()=>store.set(C.col(),it.key,{p:it.p,l:it.l||'',w:it.w||'',q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1}));
+    return await safe(()=>store.set(C.col(),C.docId?C.docId(it):it.key,Object.assign({p:it.p,l:it.l||'',w:it.w||'',q:q,by:userName(),at:Date.now(),n:prev?(prev.n||1)+1:1},C.extra?C.extra(it):{})));
   }
   function itemOf(k){const G=groups(),o=openG&&G.g.get(openG);return o?o.items.find(x=>x.key===k):null;}
   function open(gk,part){
@@ -1157,6 +1169,8 @@ function LocCounter(p,C){
       if(n)toast('Tersimpan '+fmt(n)+' part');
       render();return;
     }
+    if(e.target.closest('#'+p+'OkAll')&&C.onOkAll){C.onOkAll(Array.from(E('Panel').querySelectorAll('[data-k]')).map(r=>r.dataset.k));return;}
+    const ob=e.target.closest('[data-ok]');if(ob&&C.onOk){C.onOk(ob.dataset.ok);return;}
     const nb=e.target.closest('[data-note]');if(nb&&C.onNote){C.onNote(nb.dataset.note);return;}
     const b=e.target.closest('[data-act]');if(!b)return;
     const row=b.closest('[data-k]');if(!row)return;
@@ -1214,13 +1228,23 @@ function LocCounter(p,C){
   return {render:render};
 }
 const hitC=LocCounter('hit');
-let recScopeCache=null;
+let recScopeCache=null,rruN=2,rruRows=new Map();
+/* OK admin: part yang sudah direcount dan di-OK admin (kondisi apa pun) hilang dari Recount dan Recount Ulang, hasil akhirnya tetap di Report */
+const okBtn=(k,mode)=>isAdmin()&&mode==='done'?'<button class="btn block" type="button" data-ok="'+esc(k)+'">OK (selesai, hilang dari Recount)</button>':'';
+async function okMany(keys){
+  if(!isAdmin()||!keys.length)return;
+  if(keys.length>1&&!await ask('OK <b>'+fmt(keys.length)+' part</b>? Part ini hilang dari menu Recount dan Recount Ulang, hasil akhirnya tetap masuk Report.','OK semua'))return;
+  const by=userName(),at=Date.now();
+  if(await safe(()=>par(keys,k=>store.set('recok-'+sid,k,{by:by,at:at}))))toast(fmt(keys.length)+' part di-OK');
+}
+const okOne=k=>okMany([k]);
 const recC=LocCounter('rec',{
   scope:()=>{
     const m=new Map();
     buildReport().forEach(r=>{
       if(r.c1===null)return;
-      if((r.d1===0||r.ex)&&r.rec===null)return;
+      if(D.rok.has(r.key))return;
+      if(r.d1===0&&r.rec===null)return;
       const it=M.byKey.get(r.key);
       if(it?!recPass(it,r.key):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
       m.set(r.key,{p:r.p,d:r.d,l:r.l||'',w:r.w||''});
@@ -1228,12 +1252,49 @@ const recC=LocCounter('rec',{
     return m;
   },
   map:()=>D.recounts,col:()=>'recounts-'+sid,allowNew:false,
-  stok:k=>stokHTML(k,true,true)+recWho(k)+noteHTML(notesOf(k)),
+  stok:k=>stokHTML(k,true,true)+rrLine(k)+recWho(k)+noteHTML(notesOf(k)),okBtn:okBtn,onOk:okOne,onOkAll:okMany,
   noteBtn:k=>{const n=notesOf(k).length;return '<button class="btn block" type="button" data-note="'+esc(k)+'">Catatan'+(n?' ('+fmt(n)+')':'')+'</button>';},onNote:k=>noteSheet(k),
   pw:'perlu recount',dw:'sudah direcount',act:'Recount',
   empty:()=>'Belum ada part yang perlu recount. Part muncul di sini setelah dihitung di menu Hitung dan hasilnya selisih dari stok recount (atau stok sistem).',
   allDone:'Semua part selisih sudah direcount. Cek hasilnya di Report.'
 });
+
+/* ---------- RECOUNT ULANG: recount ke-2, 3, 4 dst atas hasil recount sebelumnya ---------- */
+const rruC=LocCounter('rru',{
+  scope:()=>{
+    const m=new Map(),N=rruN;rruRows=new Map();
+    buildReport().forEach(r=>{
+      if(r.c1===null||D.rok.has(r.key)||!r.rn)return;
+      const has=r.rh.some(h=>h.n===N);
+      if(!has&&!(r.rn===N-1&&r.diff!==0))return;
+      const it=M.byKey.get(r.key);
+      if(it?!recPass(it,r.key,whoF.rru):!(isAdmin()||(D.counts.get(r.key)||{}).by===userName()))return;
+      rruRows.set(r.key,r);m.set(r.key,{p:r.p,d:r.d,l:r.l||'',w:r.w||''});
+    });
+    return m;
+  },
+  map:()=>{const m=new Map();D.rr.forEach(v=>{if(v&&v.k&&Number(v.rn)===rruN)m.set(v.k,v);});return m;},
+  col:()=>'rrec-'+sid,docId:it=>rruN+'~'+it.key,extra:it=>({rn:rruN,k:it.key}),allowNew:false,
+  stok:k=>{
+    const r=rruRows.get(k);if(!r)return '';
+    return '<div class="grid4"><span>Stok<b>'+fmt(r.sys)+'</b></span><span>Hitung 1<b>'+(r.c1===null?'-':fmt(r.c1))+'</b></span>'
+      +r.rh.map(h=>'<span>Recount '+h.n+'<b>'+fmt(h.q)+'</b></span>').join('')+selSpan('Selisih akhir',r.diff===null?0:r.diff)+'</div>'+noteHTML(notesOf(k));
+  },
+  okBtn:okBtn,onOk:okOne,onOkAll:okMany,
+  pw:'perlu recount ulang',dw:'sudah recount ulang',act:'Recount ulang',
+  empty:()=>'Belum ada part untuk Recount ke-'+rruN+'. Part muncul di sini setelah direcount, hasilnya masih selisih, dan belum di-OK admin.',
+  allDone:'Semua part sudah direcount ulang. Cek hasilnya di Report, atau OK bila sudah benar.'
+});
+function renderRruSel(){
+  const s=$('#rruRound');if(!s)return;
+  let mx=1;rrIdx().forEach(a=>{const n=a[a.length-1].n;if(n>mx)mx=n;});
+  const opts=[];for(let n=2;n<=Math.max(2,mx+1);n++)opts.push(n);
+  const sig=opts.join(',');
+  if(s.dataset.sig!==sig){s.innerHTML=opts.map(n=>'<option value="'+n+'">Recount ke-'+n+'</option>').join('');s.dataset.sig=sig;}
+  if(opts.indexOf(rruN)<0)rruN=2;
+  s.value=String(rruN);
+}
+document.addEventListener('change',e=>{if(e.target&&e.target.id==='rruRound'){rruN=+e.target.value;rruC.render();}});
 
 /* ---------- RECOUNT: info dan penugasan H50 (depo H5A/H5B otomatis ke PIC) ---------- */
 function recWho(k){
@@ -1247,7 +1308,7 @@ function renderRecInfo(){
   if(!isAdmin()){e.hidden=true;return;}
   const rows=buildReport();let h50=0,h50n=0,dep=0,depn=0;
   rows.forEach(r=>{
-    if(r.c1===null||r.rec!==null||r.d1===0||r.ex)return;
+    if(r.c1===null||r.rec!==null||r.d1===0)return;
     const it=M.byKey.get(r.key);if(!it)return;
     if(isDepot(it.w)){dep++;if(!recOwner(r.key,it))depn++;}
     else{h50++;if(!recOwner(r.key,it))h50n++;}
@@ -1274,7 +1335,7 @@ async function saveRasg(map){
 function recAsgSheet(){
   const rows=buildReport(),list=[];
   rows.forEach(r=>{
-    if(r.c1===null||r.rec!==null||r.d1===0||r.ex)return;
+    if(r.c1===null||r.rec!==null||r.d1===0)return;
     const it=M.byKey.get(r.key);if(!it||isDepot(it.w))return;
     list.push({key:r.key,p:r.p,d:r.d,l:r.l||'',w:r.w||''});
   });
@@ -1613,7 +1674,7 @@ function repRowHTML(r,pn){
   const pic=r.a?pn(r.a):'';
   const meta=(r.l||pic||r.cb||r.su)?'<div class="meta">'+(r.w?'<span>WH '+esc(r.w)+'</span>':'')+(r.l?'<span>Lokasi '+esc(r.l)+'</span>':'')+(pic?'<span>PIC '+esc(pic)+'</span>':'')+(r.cb?'<span>Dihitung oleh '+esc(r.cb)+'</span>':'')+(r.rb?'<span>Recount oleh '+esc(r.rb)+'</span>':'')+(r.su?'<span>Stok awal '+fmt(r.s0)+' → stok recount '+fmt(r.sys)+'</span>':'')+'</div>':'';
   const v=x=>x===null||x===undefined?'-':fmt(x);
-  return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount</span>':'')+(r.ex?' <span class="badge rc">Dijelaskan catatan</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta+noteHTML(r.nt)
+  return '<div class="row"><div class="rm">'+pnLink(r.p)+(r.rec!==null&&r.rec!==undefined?' <span class="badge rc">Recount'+(r.rn>1?' ke-'+r.rn:'')+'</span>':'')+(r.ok?' <span class="badge pack">OK admin</span>':'')+'<div class="ds">'+(esc(r.d)||'<i>tanpa deskripsi</i>')+'</div>'+meta+(r.rh&&r.rh.length>1?'<div class="meta">'+r.rh.map(x=>'<span>Recount '+x.n+': '+fmt(x.q)+'</span>').join('')+'</div>':'')+noteHTML(r.nt)+(r.ok&&r.key&&isAdmin()?'<button class="btn sm" type="button" data-unok="'+encodeURIComponent(r.key)+'" style="margin-top:8px">Batalkan OK (kembalikan ke Recount)</button>':'')
     +'<div class="grid4"><span>Stok<b>'+fmt(r.sys)+'</b></span><span>Hitung 1<b>'+v(r.c1)+'</b></span><span>Recount<b>'+v(r.rec)+'</b></span><span>Akhir<b>'+v(r.fin)+'</b></span></div>'+((r.st==='plus'||r.st==='minus')?'<button class="btn sm trb" type="button" data-trace="'+encodeURIComponent(r.p)+'">Telusuri selisih</button>':'')+'</div>'
     +'<div class="dcol"><small>Selisih</small><span class="diff '+r.st+'">'+(r.st==='pending'?'Belum':r.st==='ok'?'0':sgn(r.diff))+'</span></div></div>';
 }
@@ -1628,7 +1689,7 @@ function traceSheet(p,hist){
   const s=openSheet('<h2>Telusuri Selisih</h2>'+(H?'<div class="small muted">Dari riwayat: '+esc(H.name||'Opname')+'</div>':'')+'<div class="mono">'+esc(p)+'</div><div class="small muted">'+esc(rows[0]?rows[0].d:'')+'</div><h3>Ada di lokasi</h3>'+locH+'<h3>Pergerakan</h3>'+mvH+'<button id="trX" class="btn block" type="button">Tutup</button>');
   $('#trX',s).onclick=closeSheet;
 }
-document.addEventListener('click',e=>{const b=e.target.closest('[data-trace]');if(b)traceSheet(decodeURIComponent(b.dataset.trace),!!b.closest('#hisBody'));});
+document.addEventListener('click',async e=>{const u=e.target.closest('[data-unok]');if(u){const k=decodeURIComponent(u.dataset.unok);if(await safe(()=>store.del('recok-'+sid,k)))toast('OK dibatalkan, part kembali ke Recount');return;}const b=e.target.closest('[data-trace]');if(b)traceSheet(decodeURIComponent(b.dataset.trace),!!b.closest('#hisBody'));});
 function summarize(rows){
   const S={tot:rows.length,done:0,plus:0,minus:0,ok:0,pend:0,sp:0,sm:0};
   rows.forEach(r=>{
@@ -1675,10 +1736,10 @@ $('#repQ').addEventListener('input',()=>{repLimit=60;renderRep();});
 $('#repList').addEventListener('click',e=>{if(e.target.closest('#repMore')){repLimit+=60;renderRep();}});
 function reportWB(rows,pn,titleRows){
   const g=splitGroups(rows),S=summarize(rows);
-  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh','Qty Stok Awal','No Delivery','Qty Delivery','Nama Dealer','Tgl Dokumen'];
+  const head=['Part Number','Deskripsi','Qty Stok Sistem','Hitung 1','Recount','Hitung Akhir','Selisih','WH','Lokasi','PIC','Penghitung','Recount oleh','Qty Stok Awal','No Delivery','Qty Delivery','Nama Dealer','Tgl Dokumen','Recount Terakhir Ke','OK Admin'];
   const cell=x=>x===null||x===undefined?'':x;
-  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'',r.su?r.s0:''].concat(noteCols(r.nt)));
-  const W=[24,44,14,10,10,12,10,8,14,18,18,18,14,18,12,22,14];
+  const body=a=>a.map(r=>[r.p,r.d,r.sys,cell(r.c1),cell(r.rec),cell(r.fin),cell(r.diff),r.w||'',r.l||'',r.a?pn(r.a):'',r.cb||'',r.rb||'',r.su?r.s0:''].concat(noteCols(r.nt)).concat([r.rn||'',r.ok?'Ya':'']));
+  const W=[24,44,14,10,10,12,10,8,14,18,18,18,14,18,12,22,14,12,10];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,sheetOf(titleRows.concat([[],
     ['Total part',S.tot],['Sudah dihitung',S.done],['Belum dihitung',S.pend],
@@ -2302,10 +2363,10 @@ async function wipeAsk(what,fn){
   toast('Menghapus…');
   if(await safe(fn,'Gagal menghapus. Cek koneksi atau izin akses.'))toast('Data dihapus');
 }
-const wipeResults=async()=>{await delAll('counts-'+sid,D.counts.keys());await delAll('recounts-'+sid,D.recounts.keys());};
+const wipeResults=async()=>{await delAll('counts-'+sid,D.counts.keys());await delAll('recounts-'+sid,D.recounts.keys());await delAll('rrec-'+sid,D.rr.keys());await delAll('recok-'+sid,D.rok.keys());};
 $('#dbWipe').onclick=()=>wipeAsk('Database Stock ('+fmt(MS.list.length)+' part)',()=>saveMaster([]));
 $('#hitWipe').onclick=()=>wipeAsk('hasil hitung dan recount ('+fmt(D.counts.size)+' part dihitung)',wipeResults);
-$('#recWipe').onclick=()=>wipeAsk('hasil recount ('+fmt(D.recounts.size)+' part)',()=>delAll('recounts-'+sid,D.recounts.keys()));
+$('#recWipe').onclick=()=>wipeAsk('hasil recount ('+fmt(D.recounts.size)+' part)',async()=>{await delAll('recounts-'+sid,D.recounts.keys());await delAll('rrec-'+sid,D.rr.keys());await delAll('recok-'+sid,D.rok.keys());});
 $('#repWipe').onclick=()=>wipeAsk('hasil hitung dan recount di Report',wipeResults);
 $('#hisLive').addEventListener('click',e=>{
   if(!e.target.closest('#hisWipe'))return;
@@ -2441,13 +2502,15 @@ async function boot(){
     D.meta=m;if(!fc)got.meta=true;
     const s=(m.get('state')||{}).sid||'main';
     if(s!==sid){
-      sid=s;if(unCounts)unCounts();if(unRec)unRec();if(unSc)unSc();if(unRcs)unRcs();if(unRasg)unRasg();if(unRn)unRn();D.counts=new Map();D.recounts=new Map();D.scopeSet=new Set();D.scopeCh=new Map();D.scopeFull=null;D.rcs=new Map();D.rcsCh=new Map();D.rasg=new Map();D.rasgCh=new Map();D.rnotes=new Map();
+      sid=s;if(unCounts)unCounts();if(unRec)unRec();if(unSc)unSc();if(unRcs)unRcs();if(unRasg)unRasg();if(unRn)unRn();if(unRr)unRr();if(unRok)unRok();D.rr=new Map();D.rok=new Map();D.counts=new Map();D.recounts=new Map();D.scopeSet=new Set();D.scopeCh=new Map();D.scopeFull=null;D.rcs=new Map();D.rcsCh=new Map();D.rasg=new Map();D.rasgCh=new Map();D.rnotes=new Map();
       unCounts=store.listen('counts-'+sid,cm=>{D.counts=cm;onData();},bad);
       unRec=store.listen('recounts-'+sid,cm=>{D.recounts=cm;onData();},bad);
       unSc=store.listen('scope-'+sid,cm=>{D.scopeCh=cm;const st=new Set(),fl=new Set();cm.forEach(v=>{(v.k||[]).forEach(k=>st.add(k));(v.f||[]).forEach(k=>fl.add(k));});D.scopeSet=st;D.scopeFull=fl.size?fl:null;onData();},bad);
       unRcs=store.listen('rcstock-'+sid,cm=>{D.rcsCh=cm;const m=new Map();Array.from(cm.keys()).sort().forEach(id=>((cm.get(id)||{}).items||[]).forEach(o=>m.set(o.k,o)));D.rcs=m;onData();},bad);
       unRasg=store.listen('recasg-'+sid,cm=>{D.rasgCh=cm;const m=new Map();cm.forEach(v=>(v.k||[]).forEach(k=>m.set(k,v.u)));D.rasg=m;onData();},bad);
       unRn=store.listen('recnote-'+sid,cm=>{D.rnotes=cm;onData();},bad);
+      unRr=store.listen('rrec-'+sid,cm=>{D.rr=cm;onData();},bad);
+      unRok=store.listen('recok-'+sid,cm=>{D.rok=cm;onData();},bad);
     }
     onData();
   },bad);
